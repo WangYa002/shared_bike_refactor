@@ -40,9 +40,7 @@ target_link_libraries(bike_server_net PUBLIC
 )
 target_compile_definitions(bike_server_net PUBLIC ASIO_STANDALONE)
 
-# Prod DB + Redis implementations
-find_package(hiredis REQUIRED)
-find_package(MySQL REQUIRED)
+# Prod DB + Redis implementations (hiredis::hiredis and MySQL::MySQL come from top-level fallbacks)
 
 add_library(bike_server_prod STATIC
     src/db/mysql_pool.cpp

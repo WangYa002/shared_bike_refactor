@@ -20,7 +20,7 @@ std::vector<std::uint8_t> login(const std::string& payload, Ctx& ctx) {
         return fail(ErrCode::InvalidMsg);
 
     auto stored = ctx.sessions->get_code(req.mobile());
-    if (!stored || *stored != req.icode)
+    if (!stored || *stored != req.icode())
         return fail(ErrCode::InvalidData);
 
     ctx.sessions->delete_code(req.mobile());

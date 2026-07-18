@@ -12,13 +12,12 @@ endif()
 option(BIKE_BUILD_TESTS "Build server tests" ON)
 option(BIKE_BUILD_CLIENT "Build Qt6 client" OFF)
 
-# asio is header-only. vcpkg supplies a cmake config; Ubuntu's libasio-dev does not.
-# Provide a fallback INTERFACE target so find_package(asio) isn't required downstream.
-# Hint /usr/local/include first so a manually-installed newer asio wins over stale libasio-dev.
+# asio is vendored under third_party/asio (1.30.2). vcpkg's asio (when present)
+# still wins via find_package elsewhere; this is the fallback.
 if(NOT TARGET asio::asio)
-    find_path(ASIO_HEADER_PATH asio.hpp HINTS /usr/local/include PATH_SUFFIXES asio)
-    if(NOT ASIO_HEADER_PATH)
-        message(FATAL_ERROR "asio.hpp not found — install libasio-dev / asio via vcpkg, or set ASIO_HEADER_PATH")
+    set(ASIO_HEADER_PATH ${CMAKE_SOURCE_DIR}/third_party/asio)
+    if(NOT EXISTS ${ASIO_HEADER_PATH}/asio.hpp)
+        message(FATAL_ERROR "vendored asio.hpp not found at ${ASIO_HEADER_PATH}")
     endif()
     add_library(bike_asio_iface INTERFACE)
     target_include_directories(bike_asio_iface INTERFACE ${ASIO_HEADER_PATH})

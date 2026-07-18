@@ -1,0 +1,43 @@
+# Build artifacts
+/build/
+/out/
+/bin/x64/
+/obj/
+*.o
+*.obj
+*.exe
+*.out
+*.a
+*.lib
+*.so
+*.dylib
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.userosx
+CMakeUserPresets.json
+CMakeSettings.json
+
+# Qt
+*.pro.user
+*.qmlc
+client/build*/
+
+# vcpkg
+/vcpkg/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Docker
+docker/.env
+
+# Local config overrides
+server/config/server.local.toml

@@ -1,0 +1,13 @@
+{
+  "name": "shared-bike-refactor",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "asio",
+    "protobuf",
+    "hiredis",
+    "libmysql",
+    "spdlog",
+    "tomlplusplus",
+    "gtest"
+  ]
+}

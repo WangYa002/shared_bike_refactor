@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bike/errors.hpp>
 #include <bike/protocol.hpp>
 
 #include <cstdint>

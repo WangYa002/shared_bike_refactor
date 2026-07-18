@@ -1,6 +1,5 @@
 find_package(Protobuf REQUIRED)
 find_package(spdlog   REQUIRED)
-find_package(asio    REQUIRED)
 
 # toml++ is vendored as a single header under third_party/tomlplusplus/
 add_library(bike_server_config STATIC src/config.cpp)

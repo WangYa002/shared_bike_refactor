@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 6.2 COMPONENTS Widgets Concurrent REQUIRED)
-find_package(asio REQUIRED)
 find_package(Protobuf REQUIRED)
 
 add_executable(bike_client

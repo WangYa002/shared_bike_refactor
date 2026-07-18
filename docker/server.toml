@@ -1,0 +1,21 @@
+[server]
+listen = "0.0.0.0"
+port = 8888
+threads = 4
+
+[mysql]
+host = "mysql"
+port = 3306
+user = "bike"
+password = "bike_pwd"
+database = "shared_bike"
+pool_size = 8
+
+[redis]
+host = "redis"
+port = 6379
+pool_size = 4
+
+[log]
+level = "info"
+file = "/var/log/bike-server/server.log"

@@ -1,0 +1,44 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pwd
+      MYSQL_DATABASE: shared_bike
+      MYSQL_USER: bike
+      MYSQL_PASSWORD: bike_pwd
+    volumes:
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "bike", "-pbike_pwd"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./server.toml:/etc/bike/server.toml:ro
+      - server-logs:/var/log/bike-server
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  server-logs:

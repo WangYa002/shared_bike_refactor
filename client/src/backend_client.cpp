@@ -13,7 +13,7 @@ std::vector<std::uint8_t> BackendClient::round_trip(std::uint16_t eid,
     asio::ip::tcp::resolver r(ioc_);
     asio::connect(socket, r.resolve(host_, std::to_string(port_)));
 
-    bike::Frame req{.event_id = eid, .payload = payload};
+    bike::Frame req{eid, payload};
     auto bytes = bike::encode(req);
     asio::write(socket, asio::buffer(bytes));
 
@@ -32,7 +32,7 @@ std::vector<std::uint8_t> BackendClient::round_trip(std::uint16_t eid,
     std::string body(static_cast<std::size_t>(len), '\0');
     asio::read(socket, asio::buffer(body.data(), body.size()));
 
-    bike::Frame rsp{.event_id = eid, .payload = body};
+    bike::Frame rsp{eid, body};
     return bike::encode(rsp);
 }
 

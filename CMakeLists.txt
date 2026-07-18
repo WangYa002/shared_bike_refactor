@@ -11,6 +11,7 @@ endif()
 
 option(BIKE_BUILD_TESTS "Build server tests" ON)
 option(BIKE_BUILD_CLIENT "Build Qt6 client" OFF)
+option(BIKE_BUILD_SERVER "Build bike-server binary" ON)
 
 # asio is vendored under third_party/asio (1.30.2). vcpkg's asio (when present)
 # still wins via find_package elsewhere; this is the fallback.
@@ -26,7 +27,7 @@ if(NOT TARGET asio::asio)
 endif()
 
 # hiredis: Ubuntu's libhiredis-dev ships headers + lib but no cmake config.
-if(NOT TARGET hiredis::hiredis)
+if(BIKE_BUILD_SERVER AND NOT TARGET hiredis::hiredis)
     find_path(HIREDIS_INCLUDE_DIR hiredis/hiredis.h)
     find_library(HIREDIS_LIB NAMES hiredis)
     if(NOT HIREDIS_INCLUDE_DIR OR NOT HIREDIS_LIB)
@@ -39,7 +40,7 @@ if(NOT TARGET hiredis::hiredis)
 endif()
 
 # MySQL client: Ubuntu's libmysqlclient-dev ships headers + lib but no cmake config.
-if(NOT TARGET MySQL::MySQL)
+if(BIKE_BUILD_SERVER AND NOT TARGET MySQL::MySQL)
     find_path(MYSQL_INCLUDE_DIR mysql/mysql.h)
     find_library(MYSQL_LIB NAMES mysqlclient)
     if(NOT MYSQL_INCLUDE_DIR OR NOT MYSQL_LIB)
@@ -52,7 +53,9 @@ if(NOT TARGET MySQL::MySQL)
 endif()
 
 add_subdirectory(common)
-add_subdirectory(server)
+if(BIKE_BUILD_SERVER)
+    add_subdirectory(server)
+endif()
 if(BIKE_BUILD_CLIENT)
     add_subdirectory(client)
 endif()

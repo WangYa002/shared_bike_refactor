@@ -14,5 +14,5 @@ message account_balance_request  { string session_token = 1; }
 message account_balance_response { int32 code = 1; int32 balance = 2; }
 
 message list_account_records_request  { string session_token = 1; }
-message account_record { int32 type = 1; int32 limit = 2; int64 timestamp = 3; }
+message account_record { int32 type = 1; int32 amount = 2; int64 timestamp = 3; }
 message list_account_records_response { int32 code = 1; repeated account_record records = 2; }

@@ -12,8 +12,7 @@ Server::Server(asio::io_context& ioc, const std::string& host, int port,
 }
 
 void Server::do_accept() {
-    auto& ioc = acceptor_.get_executor().context();
-    auto sock = std::make_shared<asio::ip::tcp::socket>(ioc);
+    auto sock = std::make_shared<asio::ip::tcp::socket>(acceptor_.get_executor());
     acceptor_.async_accept(*sock,
         [this, sock](std::error_code ec) {
             if (!ec) {

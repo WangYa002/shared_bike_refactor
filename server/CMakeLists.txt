@@ -1,11 +1,13 @@
 find_package(Protobuf REQUIRED)
 find_package(spdlog   REQUIRED)
-find_package(tomlplusplus REQUIRED)
 find_package(asio    REQUIRED)
 
+# toml++ is vendored as a single header under third_party/tomlplusplus/
 add_library(bike_server_config STATIC src/config.cpp)
-target_include_directories(bike_server_config PUBLIC include)
-target_link_libraries(bike_server_config PUBLIC tomlplusplus::tomlplusplus)
+target_include_directories(bike_server_config PUBLIC
+    include
+    ${CMAKE_SOURCE_DIR}/third_party/tomlplusplus
+)
 
 add_library(bike_server_logging STATIC src/logging.cpp)
 target_include_directories(bike_server_logging PUBLIC include)

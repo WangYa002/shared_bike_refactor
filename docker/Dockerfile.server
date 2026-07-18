@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake git \
     libasio-dev libprotobuf-dev protobuf-compiler \
     libhiredis-dev libmysqlclient-dev \
-    libspdlog-dev libtomlplusplus-dev libgtest-dev \
+    libspdlog-dev libgtest-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src

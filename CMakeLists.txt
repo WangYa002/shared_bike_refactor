@@ -14,8 +14,9 @@ option(BIKE_BUILD_CLIENT "Build Qt6 client" OFF)
 
 # asio is header-only. vcpkg supplies a cmake config; Ubuntu's libasio-dev does not.
 # Provide a fallback INTERFACE target so find_package(asio) isn't required downstream.
+# Hint /usr/local/include first so a manually-installed newer asio wins over stale libasio-dev.
 if(NOT TARGET asio::asio)
-    find_path(ASIO_HEADER_PATH asio.hpp PATH_SUFFIXES asio)
+    find_path(ASIO_HEADER_PATH asio.hpp HINTS /usr/local/include PATH_SUFFIXES asio)
     if(NOT ASIO_HEADER_PATH)
         message(FATAL_ERROR "asio.hpp not found — install libasio-dev / asio via vcpkg, or set ASIO_HEADER_PATH")
     endif()

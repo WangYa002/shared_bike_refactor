@@ -1,0 +1,15 @@
+version: "3.8"
+services:
+  mysql-test:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: test
+      MYSQL_DATABASE: bike
+    ports:
+      - "13306:3306"
+    volumes:
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"

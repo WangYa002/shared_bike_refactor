@@ -26,6 +26,7 @@ add_library(bike_server_core STATIC
     src/handlers/end_ride.cpp
     src/handlers/report_damage.cpp
     src/handlers/get_ride_detail.cpp
+    src/handlers/list_rides.cpp
     src/auth.cpp
 )
 target_include_directories(bike_server_core PUBLIC include)

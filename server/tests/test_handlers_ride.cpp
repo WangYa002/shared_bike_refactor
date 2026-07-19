@@ -326,3 +326,24 @@ TEST(GetRideDetail, CrossUserReturns401) {
     auto rsp = parse_detail(handlers::get_ride_detail(req.SerializeAsString(), f.ctx));
     EXPECT_EQ(rsp.code(), 401);
 }
+
+tutorial::list_rides_response parse_list(const std::vector<std::uint8_t>& b) {
+    auto fr = decode(b.data(), b.size());
+    tutorial::list_rides_response r;
+    if (fr) {
+        r.ParseFromArray(fr->frame.payload.data(), fr->frame.payload.size());
+    }
+    return r;
+}
+
+TEST(ListRides, ReturnsUsersRidesOnly) {
+    Fixture f;
+    f.rides->create_with_points({.ride_no = "R1", .user_id = 1, .amount_cent = 100});
+    f.rides->create_with_points({.ride_no = "R2", .user_id = 1, .amount_cent = 150});
+    f.rides->create_with_points({.ride_no = "RX", .user_id = 999});
+    tutorial::list_rides_request req;
+    req.set_session_token(f.token); req.set_limit(20);
+    auto rsp = parse_list(handlers::list_rides(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 200);
+    EXPECT_EQ(rsp.rides_size(), 2);
+}

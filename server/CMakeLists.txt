@@ -46,6 +46,7 @@ add_library(bike_server_prod STATIC
     src/db/mysql_pool.cpp
     src/db/mysql_user_repo.cpp
     src/db/mysql_account_repo.cpp
+    src/db/mysql_bike_repo.cpp
     src/cache/redis_session_store.cpp
 )
 target_include_directories(bike_server_prod PUBLIC include)

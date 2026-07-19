@@ -153,3 +153,24 @@ TEST(ScanUnlock, UnknownBikeReturns404) {
     auto rsp = parse_unlock(handlers::scan_unlock(req.SerializeAsString(), f.ctx));
     EXPECT_EQ(rsp.code(), 404);
 }
+
+TEST(PositionReport, UpdatesSessionPos) {
+    Fixture f;
+    f.ride_sessions->create({.ride_no = "R1", .user_id = 1, .bike_id = 1});
+    tutorial::ride_position_report req;
+    req.set_ride_no("R1"); req.set_seq(5);
+    req.set_lat(39.985); req.set_lng(116.318); req.set_elapsed_sec(5);
+    auto bytes = handlers::position_report(req.SerializeAsString(), f.ctx);
+    EXPECT_TRUE(bytes.empty());
+    auto s = f.ride_sessions->find("R1");
+    EXPECT_DOUBLE_EQ(s->last_lat, 39.985);
+    EXPECT_EQ(s->last_seq, 5);
+}
+
+TEST(PositionReport, UnknownRideIsSilent) {
+    Fixture f;
+    tutorial::ride_position_report req;
+    req.set_ride_no("RNONE");
+    auto bytes = handlers::position_report(req.SerializeAsString(), f.ctx);
+    EXPECT_TRUE(bytes.empty());
+}

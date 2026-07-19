@@ -15,6 +15,7 @@ C++17 refactor of a shared-bike backend + Qt6 desktop client.
 ## Build & run
 
 See `docs/superpowers/specs/2026-07-18-shared-bike-refactor-design.md` for the full design.
+See [docs/ops.md](docs/ops.md) for the ops runbook (deploy steps, stuck-bike recovery, test stack, event ID table).
 
 ### Backend (in Docker)
 

@@ -26,8 +26,7 @@ function setUserLocation(lat, lng) {
     }).addTo(map);
 }
 
-function renderBikes(bikesJson) {
-    var bikes = JSON.parse(bikesJson);
+function renderBikes(bikes) {
     for (var no in bikeMarkers) {
         map.removeLayer(bikeMarkers[no]);
     }
@@ -66,9 +65,9 @@ function clearTrajectory() {
     }
 }
 
-function drawFullTrajectory(pointsJson) {
+function drawFullTrajectory(points) {
     clearTrajectory();
-    var pts = JSON.parse(pointsJson).map(function(p) { return [p.lat, p.lng]; });
+    var pts = points.map(function(p) { return [p.lat, p.lng]; });
     trajPolyline = L.polyline(pts, {color: '#2563eb', weight: 4}).addTo(map);
     if (pts.length > 0) {
         map.fitBounds(trajPolyline.getBounds(), {padding: [40, 40]});

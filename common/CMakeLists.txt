@@ -21,6 +21,7 @@ add_library(bike_common STATIC
     src/pricing.cpp
     src/geo.cpp
     src/ride_no.cpp
+    src/validation.cpp
     ${PROTO_SRCS}
 )
 target_include_directories(bike_common PUBLIC
@@ -57,4 +58,9 @@ if(GTest_FOUND)
     target_link_libraries(test_ride_no PRIVATE bike_common GTest::gtest_main)
     target_include_directories(test_ride_no PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     add_test(NAME ride_no COMMAND test_ride_no)
+
+    add_executable(test_validation tests/test_validation.cpp)
+    target_link_libraries(test_validation PRIVATE bike_common GTest::gtest_main)
+    target_include_directories(test_validation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    add_test(NAME validation COMMAND test_validation)
 endif()

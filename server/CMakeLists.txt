@@ -21,6 +21,7 @@ add_library(bike_server_core STATIC
     src/handlers/account_balance.cpp
     src/handlers/list_records.cpp
     src/handlers/list_nearby_bikes.cpp
+    src/handlers/scan_unlock.cpp
     src/auth.cpp
 )
 target_include_directories(bike_server_core PUBLIC include)

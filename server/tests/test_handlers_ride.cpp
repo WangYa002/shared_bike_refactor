@@ -81,3 +81,75 @@ TEST(ListNearbyBikes, InvalidLatRejected) {
     auto rsp = parse_nearby(bytes);
     EXPECT_EQ(rsp.code(), 404);
 }
+
+tutorial::scan_unlock_response parse_unlock(const std::vector<std::uint8_t>& bytes) {
+    auto fr = decode(bytes.data(), bytes.size());
+    tutorial::scan_unlock_response r;
+    if (fr) {
+        r.ParseFromArray(fr->frame.payload.data(), fr->frame.payload.size());
+    }
+    return r;
+}
+
+TEST(ScanUnlock, SuccessCreatesSessionAndRentsBike) {
+    Fixture f;
+    f.bikes->seed({.id = 1, .bike_no = "BJ-001", .lat = 39.982, .lng = 116.314, .status = BikeStatus::Idle});
+    // User id is 1 (first user via find_or_create in Fixture's token creation flow).
+    f.accounts->add_balance(/*user_id=*/1, RecordType::Recharge, 1000);
+
+    tutorial::scan_unlock_request req;
+    req.set_session_token(f.token);
+    req.set_bike_no("BJ-001");
+    req.set_lat(39.982); req.set_lng(116.314);
+    auto bytes = handlers::scan_unlock(req.SerializeAsString(), f.ctx);
+    auto rsp = parse_unlock(bytes);
+    EXPECT_EQ(rsp.code(), 200);
+    EXPECT_FALSE(rsp.ride_no().empty());
+    EXPECT_GT(rsp.start_ts(), 0);
+
+    auto bike = f.bikes->get_for_update("BJ-001");
+    EXPECT_EQ(bike->status, BikeStatus::Rented);
+    EXPECT_TRUE(f.ride_sessions->find(rsp.ride_no()).has_value());
+}
+
+TEST(ScanUnlock, DamagedBikeReturns409) {
+    Fixture f;
+    f.bikes->seed({.id = 1, .bike_no = "BJ-001", .lat = 39.982, .lng = 116.314, .status = BikeStatus::Damaged});
+    tutorial::scan_unlock_request req;
+    req.set_session_token(f.token);
+    req.set_bike_no("BJ-001");
+    req.set_lat(39.982); req.set_lng(116.314);
+    auto rsp = parse_unlock(handlers::scan_unlock(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 409);
+    auto bike = f.bikes->get_for_update("BJ-001");
+    EXPECT_EQ(bike->status, BikeStatus::Damaged);
+}
+
+TEST(ScanUnlock, RentedBikeReturns408) {
+    Fixture f;
+    f.bikes->seed({.id = 1, .bike_no = "BJ-001", .lat = 39.982, .lng = 116.314, .status = BikeStatus::Rented});
+    tutorial::scan_unlock_request req;
+    req.set_session_token(f.token); req.set_bike_no("BJ-001");
+    req.set_lat(39.982); req.set_lng(116.314);
+    auto rsp = parse_unlock(handlers::scan_unlock(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 408);
+}
+
+TEST(ScanUnlock, InsufficientBalanceReturns406) {
+    Fixture f;
+    f.bikes->seed({.id = 1, .bike_no = "BJ-001", .lat = 39.982, .lng = 116.314, .status = BikeStatus::Idle});
+    tutorial::scan_unlock_request req;
+    req.set_session_token(f.token); req.set_bike_no("BJ-001");
+    req.set_lat(39.982); req.set_lng(116.314);
+    auto rsp = parse_unlock(handlers::scan_unlock(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 406);
+}
+
+TEST(ScanUnlock, UnknownBikeReturns404) {
+    Fixture f;
+    tutorial::scan_unlock_request req;
+    req.set_session_token(f.token); req.set_bike_no("BJ-NOSUCH");
+    req.set_lat(39.982); req.set_lng(116.314);
+    auto rsp = parse_unlock(handlers::scan_unlock(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 404);
+}

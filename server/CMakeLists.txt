@@ -20,6 +20,7 @@ add_library(bike_server_core STATIC
     src/handlers/recharge.cpp
     src/handlers/account_balance.cpp
     src/handlers/list_records.cpp
+    src/auth.cpp
 )
 target_include_directories(bike_server_core PUBLIC include)
 target_link_libraries(bike_server_core PUBLIC

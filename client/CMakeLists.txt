@@ -52,20 +52,23 @@ target_sources(bike_client PRIVATE
     resources/map.qrc
 )
 
-# ---- 单元测试 ----
-find_package(Qt6 COMPONENTS Test QUIET)
-if(Qt6Test_FOUND)
+# ---- 单元测试 (GTest + Qt Core) ----
+find_package(GTest QUIET)
+if(GTest_FOUND)
     enable_testing()
     add_executable(bike_client_tests
         tests/test_trajectory_sim.cpp
         src/trajectory_sim.cpp
     )
     target_link_libraries(bike_client_tests PRIVATE
-        Qt6::Test
+        GTest::gtest
+        GTest::gtest_main
         Qt6::Core
+        bike_common
     )
     target_include_directories(bike_client_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/common/include
     )
     add_test(NAME bike_client_tests COMMAND bike_client_tests)
 endif()

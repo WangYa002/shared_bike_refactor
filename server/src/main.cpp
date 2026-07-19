@@ -3,10 +3,11 @@
 #include "server/server.hpp"
 #include "server/router.hpp"
 #include "server/handlers.hpp"
-#include "server/repo/in_memory.hpp"
 #include "server/db/mysql_pool.hpp"
 #include "server/db/mysql_user_repo.hpp"
 #include "server/db/mysql_account_repo.hpp"
+#include "server/db/mysql_bike_repo.hpp"
+#include "server/db/mysql_ride_repo.hpp"
 #include "server/cache/redis_session_store.hpp"
 
 #include <asio.hpp>
@@ -45,10 +46,8 @@ int main(int argc, char** argv) {
         .users         = std::make_shared<MysqlUserRepo>(mysql_pool),
         .accounts      = std::make_shared<MysqlAccountRepo>(mysql_pool),
         .sessions      = std::make_shared<RedisSessionStore>(cfg.redis.host, cfg.redis.port, cfg.redis.pool_size),
-        // TODO(S12): swap for MysqlBikeRepo(mysql_pool) once implemented
-        .bikes         = std::make_shared<InMemoryBikeRepo>(),
-        // TODO(S13): swap for MysqlRideRepo(mysql_pool) once implemented
-        .rides         = std::make_shared<InMemoryRideRepo>(),
+        .bikes         = std::make_shared<MysqlBikeRepo>(mysql_pool),
+        .rides         = std::make_shared<MysqlRideRepo>(mysql_pool),
         .ride_sessions = std::make_shared<RideSessionStore>(),
     };
 
@@ -58,6 +57,13 @@ int main(int argc, char** argv) {
     router.register_handler(0x05, handlers::recharge);
     router.register_handler(0x07, handlers::account_balance);
     router.register_handler(0x09, handlers::list_records);
+    router.register_handler(0x11, handlers::list_nearby_bikes);
+    router.register_handler(0x13, handlers::scan_unlock);
+    router.register_handler(0x15, handlers::position_report);
+    router.register_handler(0x17, handlers::end_ride);
+    router.register_handler(0x19, handlers::report_damage);
+    router.register_handler(0x1B, handlers::get_ride_detail);
+    router.register_handler(0x1D, handlers::list_rides);
 
     asio::io_context ioc;
     Server server(ioc, cfg.server.listen, cfg.server.port, router, ctx);

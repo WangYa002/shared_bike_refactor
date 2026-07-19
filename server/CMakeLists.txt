@@ -20,6 +20,7 @@ add_library(bike_server_core STATIC
     src/handlers/recharge.cpp
     src/handlers/account_balance.cpp
     src/handlers/list_records.cpp
+    src/handlers/list_nearby_bikes.cpp
     src/auth.cpp
 )
 target_include_directories(bike_server_core PUBLIC include)
@@ -80,7 +81,12 @@ if(GTest_FOUND)
     target_link_libraries(test_ride_session_store PRIVATE bike_server_core GTest::gtest_main)
     target_include_directories(test_ride_session_store PRIVATE include)
 
+    add_executable(test_handlers_ride tests/test_handlers_ride.cpp)
+    target_link_libraries(test_handlers_ride PRIVATE bike_server_core GTest::gtest_main)
+    target_include_directories(test_handlers_ride PRIVATE include)
+
     add_test(NAME config  COMMAND test_config)
     add_test(NAME handlers COMMAND test_handlers)
     add_test(NAME ride_session_store COMMAND test_ride_session_store)
+    add_test(NAME handlers_ride COMMAND test_handlers_ride)
 endif()

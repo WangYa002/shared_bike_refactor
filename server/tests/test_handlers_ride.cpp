@@ -257,3 +257,31 @@ TEST(EndRide, CrossUserReturns401) {
     EXPECT_EQ(rsp.code(), 401);
 }
 
+tutorial::report_damage_response parse_damage(const std::vector<std::uint8_t>& b) {
+    auto fr = decode(b.data(), b.size());
+    tutorial::report_damage_response r;
+    if (fr) {
+        r.ParseFromArray(fr->frame.payload.data(), fr->frame.payload.size());
+    }
+    return r;
+}
+
+TEST(ReportDamage, MarksBikeDamaged) {
+    Fixture f;
+    f.bikes->seed({.id = 1, .bike_no = "BJ-001", .lat = 39.982, .lng = 116.314, .status = BikeStatus::Idle});
+    tutorial::report_damage_request req;
+    req.set_session_token(f.token); req.set_bike_no("BJ-001");
+    req.set_note("刹车失灵");
+    auto rsp = parse_damage(handlers::report_damage(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 200);
+    auto bike = f.bikes->get_for_update("BJ-001");
+    EXPECT_EQ(bike->status, BikeStatus::Damaged);
+}
+
+TEST(ReportDamage, UnknownBikeReturns404) {
+    Fixture f;
+    tutorial::report_damage_request req;
+    req.set_session_token(f.token); req.set_bike_no("BJ-NOSUCH");
+    auto rsp = parse_damage(handlers::report_damage(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 404);
+}

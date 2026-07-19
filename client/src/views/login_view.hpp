@@ -1,15 +1,15 @@
 #pragma once
 
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QString>
 #include <QWidget>
 
 #include <memory>
 
 #include "backend_client.hpp"
 #include "session_model.hpp"
-
-class QLineEdit;
-class QLabel;
-class QPushButton;
 
 namespace bike::client {
 
@@ -26,6 +26,8 @@ private slots:
     void on_login();
 
 private:
+    void set_status(const QString& text, bool is_err = false, bool is_ok = false);
+
     BackendClient* client_;
     SessionModel* session_;
     QLineEdit* le_mobile_{nullptr};

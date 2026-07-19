@@ -73,6 +73,11 @@ if(GTest_FOUND)
     add_executable(test_handlers tests/test_handlers.cpp)
     target_link_libraries(test_handlers PRIVATE bike_server_core GTest::gtest_main)
 
+    add_executable(test_ride_session_store tests/test_ride_session_store.cpp)
+    target_link_libraries(test_ride_session_store PRIVATE bike_server_core GTest::gtest_main)
+    target_include_directories(test_ride_session_store PRIVATE include)
+
     add_test(NAME config  COMMAND test_config)
     add_test(NAME handlers COMMAND test_handlers)
+    add_test(NAME ride_session_store COMMAND test_ride_session_store)
 endif()

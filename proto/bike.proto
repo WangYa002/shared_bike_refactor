@@ -16,3 +16,104 @@ message account_balance_response { int32 code = 1; int32 balance = 2; }
 message list_account_records_request  { string session_token = 1; }
 message account_record { int32 type = 1; int32 amount = 2; int64 timestamp = 3; }
 message list_account_records_response { int32 code = 1; repeated account_record records = 2; }
+
+// ===== 骑行扩展事件 0x11 – 0x1E =====
+
+message list_nearby_bikes_request {
+  string session_token = 1;
+  double lat = 2;
+  double lng = 3;
+  double radius_m = 4;
+}
+message bike_info {
+  string bike_no = 1;
+  double lat = 2;
+  double lng = 3;
+  int32  status = 4;
+}
+message list_nearby_bikes_response {
+  int32 code = 1;
+  repeated bike_info bikes = 2;
+}
+
+message scan_unlock_request {
+  string session_token = 1;
+  string bike_no = 2;
+  double lat = 3;
+  double lng = 4;
+}
+message scan_unlock_response {
+  int32  code = 1;
+  string desc = 2;
+  string ride_no = 3;
+  int64  start_ts = 4;
+}
+
+message ride_position_report {
+  string ride_no = 1;
+  int32  seq = 2;
+  double lat = 3;
+  double lng = 4;
+  int32  elapsed_sec = 5;
+}
+
+message end_ride_request {
+  string session_token = 1;
+  string ride_no = 2;
+  double end_lat = 3;
+  double end_lng = 4;
+}
+message end_ride_response {
+  int32  code = 1;
+  string desc = 2;
+  int32  duration_sec = 3;
+  int32  distance_m = 4;
+  int32  amount_cent = 5;
+  int32  balance_after = 6;
+}
+
+message report_damage_request {
+  string session_token = 1;
+  string bike_no = 2;
+  string note = 3;
+}
+message report_damage_response {
+  int32  code = 1;
+  string desc = 2;
+}
+
+message get_ride_detail_request {
+  string session_token = 1;
+  string ride_no = 2;
+}
+message ride_point {
+  double lat = 1;
+  double lng = 2;
+  int32  elapsed_sec = 3;
+}
+message get_ride_detail_response {
+  int32  code = 1;
+  string ride_no = 2;
+  int32  duration_sec = 3;
+  int32  distance_m = 4;
+  int32  amount_cent = 5;
+  string start_tm = 6;
+  string end_tm = 7;
+  repeated ride_point points = 8;
+}
+
+message list_rides_request {
+  string session_token = 1;
+  int32  limit = 2;
+}
+message ride_summary {
+  string ride_no = 1;
+  string start_tm = 2;
+  int32  duration_sec = 3;
+  int32  distance_m = 4;
+  int32  amount_cent = 5;
+}
+message list_rides_response {
+  int32 code = 1;
+  repeated ride_summary rides = 2;
+}

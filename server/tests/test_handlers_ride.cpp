@@ -285,3 +285,44 @@ TEST(ReportDamage, UnknownBikeReturns404) {
     auto rsp = parse_damage(handlers::report_damage(req.SerializeAsString(), f.ctx));
     EXPECT_EQ(rsp.code(), 404);
 }
+
+tutorial::get_ride_detail_response parse_detail(const std::vector<std::uint8_t>& b) {
+    auto fr = decode(b.data(), b.size());
+    tutorial::get_ride_detail_response r;
+    if (fr) {
+        r.ParseFromArray(fr->frame.payload.data(), fr->frame.payload.size());
+    }
+    return r;
+}
+
+TEST(GetRideDetail, ReturnsPointsForOwner) {
+    Fixture f;
+    std::vector<RidePoint> pts = {
+        {.seq = 0, .lat = 39.982, .lng = 116.314, .elapsed_sec = 0},
+        {.seq = 1, .lat = 39.983, .lng = 116.315, .elapsed_sec = 5},
+        {.seq = 2, .lat = 39.984, .lng = 116.316, .elapsed_sec = 10},
+    };
+    f.rides->create_with_points({
+        .ride_no = "R1", .user_id = 1, .bike_id = 1,
+        .start_ts = 1000, .end_ts = 1010,
+        .start_lat = 39.982, .start_lng = 116.314,
+        .end_lat = 39.984, .end_lng = 116.316,
+        .duration_sec = 10, .distance_m = 200,
+        .amount_cent = 100, .points = pts,
+    });
+    tutorial::get_ride_detail_request req;
+    req.set_session_token(f.token); req.set_ride_no("R1");
+    auto rsp = parse_detail(handlers::get_ride_detail(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 200);
+    EXPECT_EQ(rsp.points_size(), 3);
+    EXPECT_EQ(rsp.points(0).lat(), 39.982);
+}
+
+TEST(GetRideDetail, CrossUserReturns401) {
+    Fixture f;
+    f.rides->create_with_points({.ride_no = "RX", .user_id = 999});
+    tutorial::get_ride_detail_request req;
+    req.set_session_token(f.token); req.set_ride_no("RX");
+    auto rsp = parse_detail(handlers::get_ride_detail(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 401);
+}

@@ -28,6 +28,10 @@ target_include_directories(bike_common PUBLIC
 target_compile_features(bike_common PUBLIC cxx_std_17)
 target_link_libraries(bike_common PUBLIC protobuf::libprotobuf)
 
+if(MSVC)
+    target_compile_options(bike_common PUBLIC /utf-8)
+endif()
+
 # Tests
 enable_testing()
 find_package(GTest)

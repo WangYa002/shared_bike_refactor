@@ -1,5 +1,6 @@
 #pragma once
 
+#include "server/repo/bike_repo.hpp"
 #include "server/repo/user_repo.hpp"
 #include "server/repo/account_repo.hpp"
 #include "server/repo/session_store.hpp"
@@ -127,6 +128,50 @@ private:
     std::mt19937_64 rng_{std::random_device{}()};
     std::map<std::string, CodeEntry> codes_;
     std::map<std::string, Entry> sessions_;
+};
+
+class InMemoryBikeRepo : public IBikeRepo {
+public:
+    std::optional<Bike> get_for_update(const std::string& no) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = bikes_.find(no);
+        if (it == bikes_.end()) return std::nullopt;
+        return it->second;
+    }
+    bool update_status(int id, BikeStatus s) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        for (auto& [_, b] : bikes_) {
+            if (b.id == id) { b.status = s; return true; }
+        }
+        return false;
+    }
+    bool update_location(int id, double lat, double lng) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        for (auto& [_, b] : bikes_) {
+            if (b.id == id) { b.lat = lat; b.lng = lng; return true; }
+        }
+        return false;
+    }
+    std::vector<Bike> list_in_bounds(double la_min, double la_max,
+                                     double lo_min, double lo_max) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        std::vector<Bike> out;
+        for (auto& [_, b] : bikes_) {
+            if (b.lat >= la_min && b.lat <= la_max &&
+                b.lng >= lo_min && b.lng <= lo_max) {
+                out.push_back(b);
+            }
+        }
+        return out;
+    }
+    // 测试辅助
+    void seed(Bike b) {
+        std::lock_guard<std::mutex> lk(mu_);
+        bikes_[b.bike_no] = b;
+    }
+private:
+    std::mutex mu_;
+    std::map<std::string, Bike> bikes_;
 };
 
 } // namespace bike::server

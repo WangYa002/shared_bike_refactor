@@ -42,9 +42,14 @@ int main(int argc, char** argv) {
     });
 
     Ctx ctx{
-        std::make_shared<MysqlUserRepo>(mysql_pool),
-        std::make_shared<MysqlAccountRepo>(mysql_pool),
-        std::make_shared<RedisSessionStore>(cfg.redis.host, cfg.redis.port, cfg.redis.pool_size),
+        .users         = std::make_shared<MysqlUserRepo>(mysql_pool),
+        .accounts      = std::make_shared<MysqlAccountRepo>(mysql_pool),
+        .sessions      = std::make_shared<RedisSessionStore>(cfg.redis.host, cfg.redis.port, cfg.redis.pool_size),
+        // TODO(S12): swap for MysqlBikeRepo(mysql_pool) once implemented
+        .bikes         = std::make_shared<InMemoryBikeRepo>(),
+        // TODO(S13): swap for MysqlRideRepo(mysql_pool) once implemented
+        .rides         = std::make_shared<InMemoryRideRepo>(),
+        .ride_sessions = std::make_shared<RideSessionStore>(),
     };
 
     Router router;

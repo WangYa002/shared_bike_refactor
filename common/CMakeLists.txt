@@ -19,6 +19,7 @@ add_custom_command(
 add_library(bike_common STATIC
     src/protocol.cpp
     src/pricing.cpp
+    src/geo.cpp
     ${PROTO_SRCS}
 )
 target_include_directories(bike_common PUBLIC
@@ -45,4 +46,9 @@ if(GTest_FOUND)
     target_link_libraries(test_pricing PRIVATE bike_common GTest::gtest_main)
     target_include_directories(test_pricing PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     add_test(NAME pricing COMMAND test_pricing)
+
+    add_executable(test_geo tests/test_geo.cpp)
+    target_link_libraries(test_geo PRIVATE bike_common GTest::gtest_main)
+    target_include_directories(test_geo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    add_test(NAME geo COMMAND test_geo)
 endif()

@@ -6,14 +6,14 @@ CREATE TABLE IF NOT EXISTS bike (
   bike_no    varchar(32)  NOT NULL UNIQUE,
   lat        decimal(10,7) NOT NULL,
   lng        decimal(10,7) NOT NULL,
-  status     tinyint      NOT NULL DEFAULT 0,
+  status     tinyint      NOT NULL DEFAULT 0,    -- 0=idle 1=rented 2=damaged
   created_at timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS ride (
   id            bigint       NOT NULL PRIMARY KEY AUTO_INCREMENT,
-  ride_no       varchar(32)  NOT NULL UNIQUE,
+  ride_no       varchar(32)  NOT NULL UNIQUE,    -- R + yyyyMMdd + 6-digit seq
   user_id       int          NOT NULL,
   bike_id       int          NOT NULL,
   start_tm      timestamp    NOT NULL,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS ride (
   duration_sec  int          NOT NULL,
   distance_m    int          NOT NULL,
   amount_cent   int          NOT NULL,
-  status        tinyint      NOT NULL DEFAULT 0,
+  status        tinyint      NOT NULL DEFAULT 0, -- 0=completed 1=auto_cancelled
   INDEX idx_user_start (user_id, start_tm),
   INDEX idx_bike_start (bike_id, start_tm),
   FOREIGN KEY (user_id) REFERENCES userinfo(id),

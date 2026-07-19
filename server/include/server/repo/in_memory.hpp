@@ -4,6 +4,7 @@
 #include "server/repo/user_repo.hpp"
 #include "server/repo/account_repo.hpp"
 #include "server/repo/session_store.hpp"
+#include "server/repo/ride_repo.hpp"
 
 #include <chrono>
 #include <ctime>
@@ -172,6 +173,59 @@ public:
 private:
     std::mutex mu_;
     std::map<std::string, Bike> bikes_;
+};
+
+class InMemoryRideRepo : public IRideRepo {
+public:
+    Ride create_with_points(const CreateRideInput& in) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        Ride r;
+        r.id = next_id_++;
+        r.ride_no = in.ride_no;
+        r.user_id = in.user_id;
+        r.bike_id = in.bike_id;
+        r.start_ts = in.start_ts;
+        r.end_ts = in.end_ts;
+        r.start_lat = in.start_lat;
+        r.start_lng = in.start_lng;
+        r.end_lat = in.end_lat;
+        r.end_lng = in.end_lng;
+        r.duration_sec = in.duration_sec;
+        r.distance_m = in.distance_m;
+        r.amount_cent = in.amount_cent;
+        r.status = 0;
+        rides_[r.id] = r;
+        points_[r.id] = in.points;
+        by_no_[r.ride_no] = r.id;
+        return r;
+    }
+    std::optional<Ride> find_by_no(const std::string& no) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = by_no_.find(no);
+        if (it == by_no_.end()) return std::nullopt;
+        return rides_[it->second];
+    }
+    std::vector<RidePoint> list_points(int ride_id) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = points_.find(ride_id);
+        if (it == points_.end()) return {};
+        return it->second;
+    }
+    std::vector<Ride> list_by_user(int uid, int limit) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        std::vector<Ride> out;
+        for (auto& [_, r] : rides_) {
+            if (r.user_id == uid) out.push_back(r);
+            if ((int)out.size() >= limit) break;
+        }
+        return out;
+    }
+private:
+    std::mutex mu_;
+    std::map<int, Ride> rides_;
+    std::map<int, std::vector<RidePoint>> points_;
+    std::map<std::string, int> by_no_;
+    int next_id_{1};
 };
 
 } // namespace bike::server

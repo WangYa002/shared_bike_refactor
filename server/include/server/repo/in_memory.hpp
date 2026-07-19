@@ -46,8 +46,10 @@ public:
     }
     int add_balance(int uid, RecordType type, int amount) override {
         std::lock_guard<std::mutex> lk(mu_);
+        int cur = bal_.count(uid) ? bal_[uid] : 0;
+        if (amount < 0 && cur + amount < 0) return -1;   // 余额不足,不修改状态
         int& b = bal_[uid];
-        b += amount;
+        b = cur + amount;
         records_[uid].push_back(AccountRecord{
             .type = static_cast<int>(type),
             .amount = amount,

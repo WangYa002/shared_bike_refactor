@@ -7,6 +7,8 @@
 #include <bike.pb.h>
 #include <gtest/gtest.h>
 
+#include <ctime>
+
 using namespace bike;
 using namespace bike::server;
 
@@ -174,3 +176,84 @@ TEST(PositionReport, UnknownRideIsSilent) {
     auto bytes = handlers::position_report(req.SerializeAsString(), f.ctx);
     EXPECT_TRUE(bytes.empty());
 }
+
+tutorial::end_ride_response parse_end(const std::vector<std::uint8_t>& bytes) {
+    auto fr = decode(bytes.data(), bytes.size());
+    tutorial::end_ride_response r;
+    if (fr) {
+        r.ParseFromArray(fr->frame.payload.data(), fr->frame.payload.size());
+    }
+    return r;
+}
+
+TEST(EndRide, SuccessPathChargesAndArchives) {
+    Fixture f;
+    f.bikes->seed({.id = 1, .bike_no = "BJ-001", .lat = 39.982, .lng = 116.314, .status = BikeStatus::Rented});
+    f.accounts->add_balance(1, RecordType::Recharge, 1000);
+    // start_ts = 60 seconds ago so duration_sec ~= 60 → fee 100
+    long long past = static_cast<long long>(std::time(nullptr)) - 60;
+    f.ride_sessions->create({
+        .ride_no = "R1", .user_id = 1, .bike_id = 1,
+        .start_lat = 39.982, .start_lng = 116.314,
+        .start_ts = past,
+    });
+
+    tutorial::end_ride_request req;
+    req.set_session_token(f.token); req.set_ride_no("R1");
+    req.set_end_lat(39.985); req.set_end_lng(116.318);
+    auto rsp = parse_end(handlers::end_ride(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 200);
+    EXPECT_GT(rsp.amount_cent(), 0);
+    EXPECT_EQ(rsp.balance_after(), 1000 - rsp.amount_cent());
+
+    auto bike = f.bikes->get_for_update("BJ-001");
+    EXPECT_EQ(bike->status, BikeStatus::Idle);
+    EXPECT_NEAR(bike->lat, 39.985, 0.0001);
+
+    EXPECT_FALSE(f.ride_sessions->find("R1").has_value());
+
+    auto ride = f.rides->find_by_no("R1");
+    ASSERT_TRUE(ride.has_value());
+    EXPECT_EQ(ride->amount_cent, rsp.amount_cent());
+}
+
+TEST(EndRide, IdempotentReturnsHistoryWithoutDoubleCharge) {
+    Fixture f;
+    f.bikes->seed({.id = 1, .bike_no = "BJ-001", .lat = 39.982, .lng = 116.314, .status = BikeStatus::Idle});
+    f.accounts->add_balance(1, RecordType::Recharge, 1000);
+    f.rides->create_with_points({
+        .ride_no = "R1", .user_id = 1, .bike_id = 1,
+        .start_ts = 1000, .end_ts = 2000,
+        .start_lat = 39.982, .start_lng = 116.314,
+        .end_lat = 39.985, .end_lng = 116.318,
+        .duration_sec = 1000, .distance_m = 300,
+        .amount_cent = 150, .points = {},
+    });
+    int bal_before = f.accounts->get_balance(1);
+
+    tutorial::end_ride_request req;
+    req.set_session_token(f.token); req.set_ride_no("R1");
+    req.set_end_lat(39.985); req.set_end_lng(116.318);
+    auto rsp = parse_end(handlers::end_ride(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 200);
+    EXPECT_EQ(rsp.amount_cent(), 150);
+    EXPECT_EQ(f.accounts->get_balance(1), bal_before);
+}
+
+TEST(EndRide, CrossUserReturns401) {
+    Fixture f;
+    f.rides->create_with_points({
+        .ride_no = "R1", .user_id = 999, .bike_id = 1,
+        .start_ts = 1000, .end_ts = 2000,
+        .start_lat = 39.982, .start_lng = 116.314,
+        .end_lat = 39.985, .end_lng = 116.318,
+        .duration_sec = 1000, .distance_m = 300,
+        .amount_cent = 150, .points = {},
+    });
+    tutorial::end_ride_request req;
+    req.set_session_token(f.token); req.set_ride_no("R1");
+    req.set_end_lat(39.985); req.set_end_lng(116.318);
+    auto rsp = parse_end(handlers::end_ride(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 401);
+}
+

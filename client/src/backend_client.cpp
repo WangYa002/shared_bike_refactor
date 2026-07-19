@@ -1,6 +1,8 @@
 #include "backend_client.hpp"
 
 #include <cstring>
+#include <thread>
+#include <utility>
 
 namespace bike::client {
 
@@ -84,6 +86,102 @@ tutorial::list_account_records_response BackendClient::list_records(const std::s
     req.set_session_token(token);
     auto bytes = round_trip(0x09, req.SerializeAsString());
     return parse<tutorial::list_account_records_response>(bytes);
+}
+
+tutorial::list_nearby_bikes_response BackendClient::list_nearby_bikes(
+    const std::string& token, double lat, double lng, double radius_m) {
+    tutorial::list_nearby_bikes_request req;
+    req.set_session_token(token);
+    req.set_lat(lat);
+    req.set_lng(lng);
+    req.set_radius_m(radius_m);
+    auto bytes = round_trip(0x11, req.SerializeAsString());
+    return parse<tutorial::list_nearby_bikes_response>(bytes);
+}
+
+tutorial::scan_unlock_response BackendClient::scan_unlock(
+    const std::string& token, const std::string& bike_no,
+    double lat, double lng) {
+    tutorial::scan_unlock_request req;
+    req.set_session_token(token);
+    req.set_bike_no(bike_no);
+    req.set_lat(lat);
+    req.set_lng(lng);
+    auto bytes = round_trip(0x13, req.SerializeAsString());
+    return parse<tutorial::scan_unlock_response>(bytes);
+}
+
+tutorial::end_ride_response BackendClient::end_ride(
+    const std::string& token, const std::string& ride_no,
+    double lat, double lng) {
+    tutorial::end_ride_request req;
+    req.set_session_token(token);
+    req.set_ride_no(ride_no);
+    req.set_end_lat(lat);
+    req.set_end_lng(lng);
+    auto bytes = round_trip(0x17, req.SerializeAsString());
+    return parse<tutorial::end_ride_response>(bytes);
+}
+
+tutorial::report_damage_response BackendClient::report_damage(
+    const std::string& token, const std::string& bike_no,
+    const std::string& note) {
+    tutorial::report_damage_request req;
+    req.set_session_token(token);
+    req.set_bike_no(bike_no);
+    req.set_note(note);
+    auto bytes = round_trip(0x19, req.SerializeAsString());
+    return parse<tutorial::report_damage_response>(bytes);
+}
+
+tutorial::get_ride_detail_response BackendClient::get_ride_detail(
+    const std::string& token, const std::string& ride_no) {
+    tutorial::get_ride_detail_request req;
+    req.set_session_token(token);
+    req.set_ride_no(ride_no);
+    auto bytes = round_trip(0x1B, req.SerializeAsString());
+    return parse<tutorial::get_ride_detail_response>(bytes);
+}
+
+tutorial::list_rides_response BackendClient::list_rides(
+    const std::string& token, int limit) {
+    tutorial::list_rides_request req;
+    req.set_session_token(token);
+    req.set_limit(limit);
+    auto bytes = round_trip(0x1D, req.SerializeAsString());
+    return parse<tutorial::list_rides_response>(bytes);
+}
+
+void BackendClient::report_position(
+    const std::string& ride_no, int seq,
+    double lat, double lng, int elapsed_sec) {
+    // Backpressure:如果上一次还未发完,直接丢弃本次。
+    bool expected = false;
+    if (!pos_sending_.compare_exchange_strong(expected, true)) return;
+
+    tutorial::ride_position_report req;
+    req.set_ride_no(ride_no);
+    req.set_seq(seq);
+    req.set_lat(lat);
+    req.set_lng(lng);
+    req.set_elapsed_sec(elapsed_sec);
+
+    // 在分离线程里走独立 socket 发送,不阻塞调用方
+    std::thread([this, req] {
+        try {
+            asio::io_context ioc;
+            asio::ip::tcp::socket socket(ioc);
+            asio::ip::tcp::resolver r(ioc);
+            asio::connect(socket, r.resolve(host_, std::to_string(port_)));
+            bike::Frame frame{0x15, req.SerializeAsString()};
+            auto bytes = bike::encode(frame);
+            asio::write(socket, asio::buffer(bytes));
+            // 不读响应(单向事件)
+        } catch (...) {
+            // 静默失败,下秒覆盖
+        }
+        pos_sending_.store(false);
+    }).detach();
 }
 
 } // namespace bike::client

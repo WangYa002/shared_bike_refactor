@@ -27,5 +27,34 @@ class TestComputeStats(unittest.TestCase):
         self.assertEqual(stats["latency_ms"]["min"], 0)
         self.assertEqual(stats["latency_ms"]["max"], 0)
 
+
+class TestMakeMobile(unittest.TestCase):
+    def test_default_no_partition(self):
+        from bike_bench import make_mobile
+        # worker_id=0, total_workers=1: behaves like the old code
+        self.assertEqual(make_mobile("139", 0, 1, 0), "13900000000")
+        self.assertEqual(make_mobile("139", 0, 1, 99), "13900000099")
+
+    def test_workers_get_disjoint_ranges(self):
+        from bike_bench import make_mobile
+        # Each worker gets a 1M-number block: worker N starts at N*1_000_000
+        m0 = make_mobile("139", 0, 4, 0)
+        m1 = make_mobile("139", 1, 4, 0)
+        m2 = make_mobile("139", 2, 4, 0)
+        m3 = make_mobile("139", 3, 4, 0)
+        self.assertEqual(len({m0, m1, m2, m3}), 4, "all four workers should get distinct mobiles")
+        self.assertEqual(m0, "13900000000")
+        self.assertEqual(m1, "13900100000")
+        self.assertEqual(m2, "13900200000")
+        self.assertEqual(m3, "13900300000")
+
+    def test_within_worker_unique_per_connection(self):
+        from bike_bench import make_mobile
+        a = make_mobile("139", 1, 4, 0)
+        b = make_mobile("139", 1, 4, 1)
+        c = make_mobile("139", 1, 4, 499)
+        self.assertEqual(len({a, b, c}), 3)
+
+
 if __name__ == '__main__':
     unittest.main()

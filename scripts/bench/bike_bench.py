@@ -119,6 +119,21 @@ def decode_login_response(buf: bytes):
 
 # ----------------- bench scenarios -----------------
 
+def make_mobile(prefix: str, worker_id: int, total_workers: int, i: int) -> str:
+    """Partition mobile-number space so concurrent workers don't collide on Redis keys.
+
+    Each worker owns a 100_000-number block: worker N gets indices
+    [N*100_000, (N+1)*100_000). Connection i within the worker maps to
+    index N*100_000 + i.
+    """
+    if total_workers <= 0:
+        total_workers = 1
+    if worker_id < 0 or worker_id >= total_workers:
+        raise ValueError(f"worker_id {worker_id} out of range [0, {total_workers})")
+    idx = worker_id * 100_000 + i
+    return f"{prefix}{idx:08d}"
+
+
 async def do_login_round(host: str, port: int, mobile: str) -> float:
     """完整登录链路: mobile_code -> login. 返回链路 RTT(ms). 失败抛异常."""
     t0 = time.perf_counter()
@@ -147,15 +162,17 @@ async def do_login_round(host: str, port: int, mobile: str) -> float:
             pass
 
 
-async def bench_rtt(host: str, port: int, concurrency: int):
+async def bench_rtt(host: str, port: int, concurrency: int,
+                    worker_id: int = 0, total_workers: int = 1,
+                    stats_out: list = None):
     """每个并发开 1 个新连接, 做 1 次完整登录链路."""
-    print(f"=== RTT bench: {concurrency} 个并发新连接, 各做 1 次 mobile_code->login ===\n", flush=True)
+    print(f"=== RTT bench [worker {worker_id}/{total_workers}]: {concurrency} 个并发新连接 ===\n", flush=True)
     latencies = []
     errors = []
     sem = asyncio.Semaphore(concurrency)
 
     async def one(i: int):
-        mobile = f"138{i:08d}"
+        mobile = make_mobile("138", worker_id, total_workers, i)
         async with sem:
             try:
                 rt = await do_login_round(host, port, mobile)
@@ -166,12 +183,16 @@ async def bench_rtt(host: str, port: int, concurrency: int):
     t0 = time.perf_counter()
     await asyncio.gather(*(one(i) for i in range(concurrency)))
     elapsed = time.perf_counter() - t0
-    _report("RTT-login", latencies, errors, elapsed, concurrency)
+    stats = _report("RTT-login", latencies, errors, elapsed, concurrency)
+    if stats_out is not None:
+        stats_out.append(stats)
 
 
-async def bench_qps(host: str, port: int, concurrency: int, duration: int):
+async def bench_qps(host: str, port: int, concurrency: int, duration: int,
+                    worker_id: int = 0, total_workers: int = 1,
+                    stats_out: list = None):
     """N 条长连接, 每条持续 D 秒反复发 mobile_code 请求."""
-    print(f"=== QPS bench: {concurrency} 条长连接, 持续 {duration}s 反复 mobile_code ===\n", flush=True)
+    print(f"=== QPS bench [worker {worker_id}/{total_workers}]: {concurrency} 条长连接, 持续 {duration}s ===\n", flush=True)
     latencies = []
     errors = []
     total_reqs = 0
@@ -179,7 +200,7 @@ async def bench_qps(host: str, port: int, concurrency: int, duration: int):
 
     async def worker(i: int):
         nonlocal total_reqs
-        mobile = f"139{i:08d}"
+        mobile = make_mobile("139", worker_id, total_workers, i)
         reader, writer = await asyncio.open_connection(host, port)
         try:
             while not stop.is_set():
@@ -221,7 +242,9 @@ async def bench_qps(host: str, port: int, concurrency: int, duration: int):
     await asyncio.gather(*workers, return_exceptions=True)
 
     elapsed = duration
-    _report("QPS-mobile_code", latencies, errors, elapsed, concurrency)
+    stats = _report("QPS-mobile_code", latencies, errors, elapsed, concurrency)
+    if stats_out is not None:
+        stats_out.append(stats)
 
 
 def _compute_stats(name: str, latencies: list, errors: list, elapsed: float, concurrency: int) -> dict:

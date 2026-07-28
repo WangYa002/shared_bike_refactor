@@ -96,11 +96,11 @@ threads. Adding a second instance doubles thread count to 40 on a
 not better.
 
 That is exactly the point. The experiment is designed to **prove** the
-hypothesis that the bottleneck is CPU, not connection handling. If QPS
-under nginx+2-instance is within ±10% of single instance, the data
-backs the "single instance already saturates the host" narrative. If
-it improves, that is even more interesting — it would mean the asio
-event loop has serialization we did not see.
+hypothesis that the bottleneck is CPU, not connection handling. The
+acceptance tolerance is ±15% (AC5): within that band, the data backs
+the "single instance already saturates the host" narrative. If QPS
+improves beyond +15%, that is even more interesting — it would mean
+the asio event loop has serialization we did not see.
 
 Either outcome is a defensible interview talking point.
 

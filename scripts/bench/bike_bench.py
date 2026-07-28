@@ -224,7 +224,7 @@ async def bench_qps(host: str, port: int, concurrency: int, duration: int):
     _report("QPS-mobile_code", latencies, errors, elapsed, concurrency)
 
 
-def _report(name: str, latencies: list, errors: list, elapsed: float, concurrency: int):
+def _compute_stats(name: str, latencies: list, errors: list, elapsed: float, concurrency: int) -> dict:
     n = len(latencies)
     qps = n / elapsed if elapsed > 0 else 0
 
@@ -234,6 +234,26 @@ def _report(name: str, latencies: list, errors: list, elapsed: float, concurrenc
         idx = min(len(s) - 1, int(len(s) * p / 100))
         return s[idx]
 
+    return {
+        "name": name,
+        "concurrency": concurrency,
+        "duration_sec": elapsed,
+        "requests_ok": n,
+        "errors": len(errors),
+        "qps": qps,
+        "latency_ms": {
+            "min": min(latencies) if latencies else 0.0,
+            "avg": statistics.mean(latencies) if latencies else 0.0,
+            "max": max(latencies) if latencies else 0.0,
+            "p50": pct(50), "p90": pct(90), "p95": pct(95), "p99": pct(99),
+        },
+    }
+
+
+def _report(name: str, latencies: list, errors: list, elapsed: float, concurrency: int) -> dict:
+    stats = _compute_stats(name, latencies, errors, elapsed, concurrency)
+    n = stats["requests_ok"]
+    qps = stats["qps"]
     print(f"--- {name} ---")
     print(f"  concurrency  : {concurrency}")
     print(f"  duration     : {elapsed:.2f}s")
@@ -248,9 +268,11 @@ def _report(name: str, latencies: list, errors: list, elapsed: float, concurrenc
             print(f"    [{v:>4}] {k}")
     print(f"  QPS          : {qps:.1f}")
     if n > 0:
-        print(f"  latency(ms)  : min={min(latencies):.2f}  avg={statistics.mean(latencies):.2f}  max={max(latencies):.2f}")
-        print(f"               : P50={pct(50):.2f}  P90={pct(90):.2f}  P95={pct(95):.2f}  P99={pct(99):.2f}")
+        lm = stats["latency_ms"]
+        print(f"  latency(ms)  : min={lm['min']:.2f}  avg={lm['avg']:.2f}  max={lm['max']:.2f}")
+        print(f"               : P50={lm['p50']:.2f}  P90={lm['p90']:.2f}  P95={lm['p95']:.2f}  P99={lm['p99']:.2f}")
     print()
+    return stats
 
 
 async def main_async(args):

@@ -67,9 +67,14 @@ int main(int argc, char** argv) {
     router.register_handler(0x1D, handlers::list_rides);
 
     // 业务线程池: 大小 = io worker 数 * 2 (dispatch 主要等 redis/mysql,
-    // 不抢 CPU, 多开一些可以隐藏下游延迟).
+    // 不抢 CPU, 多开一些可以隐藏下游延迟). 可用 BIKE_BIZ_THREADS 环境变量覆盖,
+    // 便于不重新编译就能调参压测.
     int io_threads = std::max(1, cfg.server.threads);
     int biz_threads = std::max(2, io_threads * 2);
+    if (const char* env = std::getenv("BIKE_BIZ_THREADS")) {
+        int v = std::atoi(env);
+        if (v > 0) biz_threads = v;
+    }
     ThreadPool biz_pool(static_cast<std::size_t>(biz_threads));
 
     asio::io_context ioc;

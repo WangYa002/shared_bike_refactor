@@ -3,11 +3,11 @@
 namespace bike::server {
 
 Server::Server(asio::io_context& ioc, const std::string& host, int port,
-               Router& router, Ctx& ctx)
+               Router& router, Ctx& ctx, ThreadPool& pool)
     : acceptor_(ioc,
                 asio::ip::tcp::endpoint(asio::ip::make_address(host),
                                         static_cast<unsigned short>(port))),
-      router_(router), ctx_(ctx) {
+      router_(router), ctx_(ctx), pool_(pool) {
     do_accept();
 }
 
@@ -16,7 +16,8 @@ void Server::do_accept() {
     acceptor_.async_accept(*sock,
         [this, sock](std::error_code ec) {
             if (!ec) {
-                auto session = std::make_shared<Session>(std::move(*sock), router_, ctx_);
+                auto session = std::make_shared<Session>(
+                    std::move(*sock), router_, ctx_, pool_);
                 session->start();
             }
             do_accept();

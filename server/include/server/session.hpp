@@ -8,12 +8,13 @@
 #include <vector>
 
 #include "server/router.hpp"
+#include "server/util/thread_pool.hpp"
 
 namespace bike::server {
 
 class Session : public std::enable_shared_from_this<Session> {
 public:
-    Session(asio::ip::tcp::socket socket, Router& router, Ctx& ctx);
+    Session(asio::ip::tcp::socket socket, Router& router, Ctx& ctx, ThreadPool& pool);
     void start();
 private:
     void do_read_header();
@@ -23,6 +24,7 @@ private:
     asio::ip::tcp::socket socket_;
     Router& router_;
     Ctx& ctx_;
+    ThreadPool& pool_;
     std::uint8_t header_buf_[bike::kHeaderLen];
     std::string body_buf_;
 };

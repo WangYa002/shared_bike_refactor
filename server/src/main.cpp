@@ -9,6 +9,7 @@
 #include "server/db/mysql_bike_repo.hpp"
 #include "server/db/mysql_ride_repo.hpp"
 #include "server/cache/redis_session_store.hpp"
+#include "server/util/thread_pool.hpp"
 
 #include <asio.hpp>
 
@@ -65,17 +66,22 @@ int main(int argc, char** argv) {
     router.register_handler(0x1B, handlers::get_ride_detail);
     router.register_handler(0x1D, handlers::list_rides);
 
+    // 业务线程池: 大小 = io worker 数 * 2 (dispatch 主要等 redis/mysql,
+    // 不抢 CPU, 多开一些可以隐藏下游延迟).
+    int io_threads = std::max(1, cfg.server.threads);
+    int biz_threads = std::max(2, io_threads * 2);
+    ThreadPool biz_pool(static_cast<std::size_t>(biz_threads));
+
     asio::io_context ioc;
-    Server server(ioc, cfg.server.listen, cfg.server.port, router, ctx);
+    Server server(ioc, cfg.server.listen, cfg.server.port, router, ctx, biz_pool);
 
-    int n = std::max(1, cfg.server.threads);
-    std::vector<std::thread> pool;
-    pool.reserve(static_cast<std::size_t>(n));
-    for (int i = 0; i < n; ++i) {
-        pool.emplace_back([&ioc] { ioc.run(); });
+    std::vector<std::thread> io_pool;
+    io_pool.reserve(static_cast<std::size_t>(io_threads));
+    for (int i = 0; i < io_threads; ++i) {
+        io_pool.emplace_back([&ioc] { ioc.run(); });
     }
-    BIKE_LOG_INFO("server running with {} worker threads", n);
+    BIKE_LOG_INFO("server running: io_workers={} biz_workers={}", io_threads, biz_threads);
 
-    for (auto& t : pool) t.join();
+    for (auto& t : io_pool) t.join();
     return 0;
 }

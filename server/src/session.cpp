@@ -3,8 +3,8 @@
 
 namespace bike::server {
 
-Session::Session(asio::ip::tcp::socket socket, Router& router, Ctx& ctx)
-    : socket_(std::move(socket)), router_(router), ctx_(ctx) {}
+Session::Session(asio::ip::tcp::socket socket, Router& router, Ctx& ctx, ThreadPool& pool)
+    : socket_(std::move(socket)), router_(router), ctx_(ctx), pool_(pool) {}
 
 void Session::start() { do_read_header(); }
 
@@ -47,12 +47,26 @@ void Session::do_read_body(std::uint32_t len) {
             }
             std::uint16_t eid = static_cast<std::uint16_t>(header_buf_[4]) |
                                 (static_cast<std::uint16_t>(header_buf_[5]) << 8);
-            auto out = router_.dispatch(eid, body_buf_, ctx_);
-            if (out.empty()) {
-                BIKE_LOG_WARN("no handler for eid={}", eid);
-                return;
-            }
-            do_write(std::move(out));
+            // Half-sync/half-async: 把 dispatch(含同步 hiredis/mysqlclient 调用)
+            // 投递到业务线程池,避免阻塞 io worker. 完成后再切回 io 线程 async_write.
+            pool_.post([self, this, eid, payload = body_buf_]() mutable {
+                std::vector<std::uint8_t> out;
+                try {
+                    out = self->router_.dispatch(eid, payload, self->ctx_);
+                } catch (const std::exception& e) {
+                    BIKE_LOG_ERROR("dispatch eid={} threw: {}", eid, e.what());
+                }
+                asio::post(self->socket_.get_executor(),
+                    [self, this, out = std::move(out), eid]() mutable {
+                        if (out.empty()) {
+                            BIKE_LOG_WARN("no handler for eid={}", eid);
+                            // 继续读下一帧,保持连接活跃
+                            self->do_read_header();
+                            return;
+                        }
+                        self->do_write(std::move(out));
+                    });
+            });
         });
 }
 

@@ -19,6 +19,7 @@ public:
     virtual ~IAccountRepo() = default;
     virtual int get_balance(int user_id) = 0;
     virtual int add_balance(int user_id, RecordType type, int amount) = 0;
+    // Returns up to `limit` most-recent records, newest first (DESC by timestamp).
     virtual std::vector<AccountRecord> list_records(int user_id, int limit) = 0;
 };
 

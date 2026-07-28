@@ -63,8 +63,10 @@ public:
         auto it = records_.find(uid);
         if (it == records_.end()) return {};
         auto& v = it->second;
-        if (v.size() <= static_cast<std::size_t>(limit)) return v;
-        return std::vector<AccountRecord>(v.end() - limit, v.end());
+        std::size_t n = std::min(static_cast<std::size_t>(limit), v.size());
+        // v is in insertion order (oldest first); contract requires newest first,
+        // so take the last n elements and reverse them.
+        return std::vector<AccountRecord>(v.rbegin(), v.rbegin() + n);
     }
 private:
     std::mutex mu_;

@@ -83,7 +83,7 @@ def main():
     combined = aggregate(worker_stats)
     combined["input_files"] = paths
 
-    out = json.dumps(combined, indent=2) if args.out else json.dumps(combined, indent=2)
+    out = json.dumps(combined, indent=2)
     if args.out:
         with open(args.out, 'w') as f:
             f.write(out)

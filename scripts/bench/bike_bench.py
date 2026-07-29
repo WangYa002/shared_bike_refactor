@@ -20,6 +20,7 @@ shared_bike 压测客户端 — 纯 Python, 零依赖 (只用 asyncio + struct)
 """
 import argparse
 import asyncio
+import json
 import struct
 import sys
 import time
@@ -270,6 +271,7 @@ def _compute_stats(name: str, latencies: list, errors: list, elapsed: float, con
             "max": max(latencies) if latencies else 0.0,
             "p50": pct(50), "p90": pct(90), "p95": pct(95), "p99": pct(99),
         },
+        "samples": list(latencies),
     }
 
 
@@ -299,10 +301,21 @@ def _report(name: str, latencies: list, errors: list, elapsed: float, concurrenc
 
 
 async def main_async(args):
+    stats_out = []
     if args.mode == 'rtt':
-        await bench_rtt(args.host, args.port, args.concurrency)
+        await bench_rtt(args.host, args.port, args.concurrency,
+                        args.worker_id, args.total_workers, stats_out)
     else:
-        await bench_qps(args.host, args.port, args.concurrency, args.duration)
+        await bench_qps(args.host, args.port, args.concurrency, args.duration,
+                        args.worker_id, args.total_workers, stats_out)
+    if args.json_out and stats_out:
+        stats = dict(stats_out[0])
+        stats["worker_id"] = args.worker_id
+        stats["total_workers"] = args.total_workers
+        stats["host"] = args.host
+        stats["port"] = args.port
+        with open(args.json_out, 'w') as f:
+            json.dump(stats, f)
 
 
 def main():
@@ -312,7 +325,16 @@ def main():
     p.add_argument('--port', type=int, default=8888)
     p.add_argument('-c', '--concurrency', type=int, default=100)
     p.add_argument('-d', '--duration', type=int, default=30, help='qps 模式持续秒数')
+    p.add_argument('--worker-id', type=int, default=0,
+                   help='0-based index of this worker; partitions mobile-number space')
+    p.add_argument('--total-workers', type=int, default=1,
+                   help='total number of concurrent worker processes')
+    p.add_argument('--json-out', default=None,
+                   help='path to write final stats as a single JSON object')
     args = p.parse_args()
+
+    if args.worker_id < 0 or args.worker_id >= args.total_workers:
+        p.error(f"--worker-id must be in [0, {args.total_workers}); got {args.worker_id}")
 
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

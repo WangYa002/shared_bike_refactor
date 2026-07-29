@@ -56,5 +56,39 @@ class TestMakeMobile(unittest.TestCase):
         self.assertEqual(len({a, b, c}), 3)
 
 
+import json
+import tempfile
+
+class TestJsonOut(unittest.TestCase):
+    def test_json_out_writes_expected_fields(self):
+        import subprocess
+        import os
+        # Use a bogus host:port so the bench fails fast with 0 requests;
+        # the test only checks JSON shape, not values.
+        with tempfile.NamedTemporaryFile(mode='r', suffix='.json', delete=False) as f:
+            json_path = f.name
+        try:
+            # Connect to a port that nothing listens on -> all errors, fast
+            r = subprocess.run(
+                ['python', 'bike_bench.py', 'qps',
+                 '--host', '127.0.0.1', '--port', '1',
+                 '-c', '1', '-d', '1',
+                 '--json-out', json_path],
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                capture_output=True, text=True, timeout=15,
+            )
+            # Bench should still write JSON even if all connections failed
+            with open(json_path, 'r') as g:
+                data = json.load(g)
+            for key in ["name", "worker_id", "total_workers", "host", "port",
+                        "concurrency", "duration_sec", "requests_ok", "errors",
+                        "qps", "latency_ms"]:
+                self.assertIn(key, data, f"missing {key} in JSON output")
+            for key in ["min", "avg", "max", "p50", "p90", "p95", "p99"]:
+                self.assertIn(key, data["latency_ms"])
+        finally:
+            os.unlink(json_path)
+
+
 if __name__ == '__main__':
     unittest.main()

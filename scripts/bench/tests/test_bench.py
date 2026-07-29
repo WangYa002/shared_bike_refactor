@@ -37,7 +37,7 @@ class TestMakeMobile(unittest.TestCase):
 
     def test_workers_get_disjoint_ranges(self):
         from bike_bench import make_mobile
-        # Each worker gets a 1M-number block: worker N starts at N*1_000_000
+        # Each worker gets a 100K-number block: worker N starts at N*100_000
         m0 = make_mobile("139", 0, 4, 0)
         m1 = make_mobile("139", 1, 4, 0)
         m2 = make_mobile("139", 2, 4, 0)

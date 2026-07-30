@@ -38,6 +38,9 @@ Set-Location -Path (Split-Path -Parent $MyInvocation.MyCommand.Path)
 
 Write-Host "=== run_bench: $Workers workers x $Concurrency concurrency = $($Workers * $Concurrency) total, ${Duration}s ==="
 
+# 0. Clean up stale per-worker outputs from a previous run with the same Tag
+Remove-Item "${Tag}_w*.json", "${Tag}_combined.json" -ErrorAction SilentlyContinue
+
 # 1. Launch all workers in parallel
 $jobs = @()
 for ($w = 0; $w -lt $Workers; $w++) {

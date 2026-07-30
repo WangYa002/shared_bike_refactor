@@ -23,22 +23,59 @@ services:
       timeout: 3s
       retries: 30
 
-  server:
+  bike-server-1:
     build:
       context: ..
       dockerfile: docker/Dockerfile.server
+    container_name: bike-server-1
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+    expose:
+      - "8888"
+    environment:
+      BIKE_INSTANCE_ID: "1"
+      BIKE_BIZ_THREADS: "16"
+    volumes:
+      - ./server.toml:/etc/bike/server.toml:ro
+      - server-logs-1:/var/log/bike-server
+    restart: unless-stopped
+
+  bike-server-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    container_name: bike-server-2
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8888"
+    environment:
+      BIKE_INSTANCE_ID: "2"
+      BIKE_BIZ_THREADS: "16"
+    volumes:
+      - ./server.toml:/etc/bike/server.toml:ro
+      - server-logs-2:/var/log/bike-server
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bike-nginx
+    depends_on:
+      - bike-server-1
+      - bike-server-2
     ports:
       - "8888:8888"
     volumes:
-      - ./server.toml:/etc/bike/server.toml:ro
-      - server-logs:/var/log/bike-server
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
     restart: unless-stopped
 
 volumes:
   mysql-data:
-  server-logs:
+  server-logs-1:
+  server-logs-2:

@@ -35,6 +35,23 @@ stream 代理映射到宿主机 8888。详见 [docs/ops.md](docs/ops.md)。
 
 Then launch `build/client/Release/bike_client.exe` (or platform equivalent).
 
+**架构**: QML 视图(GUI 线程) → `ApiBridge`(context property `api`) ↕ 信号槽
+(自动 QueuedConnection, 零锁) ↔ `TcpWorker`(专属 QThread, QTcpSocket 长连接 +
+FBEB v2 编解码 + 指数退避重连)。
+
+**所需 Qt 模块**: Core / Network / Quick / QuickControls2 / **WebEngineQuick** /
+WebChannel / Positioning (Test 仅单测需要)。
+缺 WebEngine 模块时构建自动降级: 跳过 bike_client 应用目标, 仅构建
+`bike_client_core`(网络层+轨迹模拟静态库) 与单元测试; 安装 Qt WebEngine 后
+重新配置即可完整构建。
+
+**服务器地址**: 环境变量 `BIKE_SERVER_HOST` / `BIKE_SERVER_PORT` 覆盖,
+默认 `124.220.92.243:8888` (现网云服务器)。例如:
+
+    set BIKE_SERVER_HOST=127.0.0.1 & set BIKE_SERVER_PORT=8888
+
+发布打包用 `build.bat`(windeployqt --qmldir client\qml 部署 QML 模块依赖)。
+
 ## Wire protocol (v2)
 
 > **破坏性变更**: 帧头由 10 字节升级为 14 字节(新增 `seq` u32 LE)。

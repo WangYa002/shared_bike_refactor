@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.22)
 project(shared_bike_refactor CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -12,20 +12,6 @@ endif()
 option(BIKE_BUILD_TESTS "Build server tests" ON)
 option(BIKE_BUILD_CLIENT "Build Qt6 client" OFF)
 option(BIKE_BUILD_SERVER "Build bike-gateway/bike-dispatch binaries" ON)
-
-# asio is vendored under third_party/asio (1.30.2); 模块二后仅 Qt 客户端仍使用
-# (bike_server_net 已移除)。vcpkg's asio (when present) still wins via
-# find_package elsewhere; this is the fallback.
-if(NOT TARGET asio::asio)
-    set(ASIO_HEADER_PATH ${CMAKE_SOURCE_DIR}/third_party/asio)
-    if(NOT EXISTS ${ASIO_HEADER_PATH}/asio.hpp)
-        message(FATAL_ERROR "vendored asio.hpp not found at ${ASIO_HEADER_PATH}")
-    endif()
-    add_library(bike_asio_iface INTERFACE)
-    target_include_directories(bike_asio_iface INTERFACE ${ASIO_HEADER_PATH})
-    target_compile_definitions(bike_asio_iface INTERFACE ASIO_STANDALONE)
-    add_library(asio::asio ALIAS bike_asio_iface)
-endif()
 
 # hiredis: Ubuntu's libhiredis-dev ships headers + lib but no cmake config.
 if(BIKE_BUILD_SERVER AND NOT TARGET hiredis::hiredis)

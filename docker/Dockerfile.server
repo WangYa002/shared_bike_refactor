@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     liburing-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# asio is vendored under third_party/asio/ (1.30.2); cmake picks it up from there.
-# No need to fetch during build — avoids GitHub HTTPS reliability issues from CN servers.
+# 服务端已不依赖 asio(网关为 io_uring 实现); vendored third_party/asio 已移除。
+# 构建无需额外拉取第三方网络库。
 
 WORKDIR /src
 COPY . .

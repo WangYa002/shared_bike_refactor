@@ -22,7 +22,7 @@ std::vector<std::uint8_t> get_ride_detail(const std::string& payload, Ctx& ctx) 
     tutorial::get_ride_detail_response rsp;
     auto fail = [&](ErrCode ec, std::string /*desc*/ = "") {
         rsp.set_code(code(ec));
-        Frame f{.event_id = 0x1C, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::GetRideDetailResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -51,7 +51,7 @@ std::vector<std::uint8_t> get_ride_detail(const std::string& payload, Ctx& ctx) 
         pp->set_lng(p.lng);
         pp->set_elapsed_sec(p.elapsed_sec);
     }
-    Frame f{.event_id = 0x1C, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::GetRideDetailResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

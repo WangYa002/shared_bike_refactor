@@ -10,7 +10,7 @@ std::vector<std::uint8_t> account_balance(const std::string& payload, Ctx& ctx) 
 
     auto fail = [&](ErrCode ec) {
         rsp.set_code(code(ec));
-        Frame f{.event_id = 0x08, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::AccountBalanceResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -25,7 +25,7 @@ std::vector<std::uint8_t> account_balance(const std::string& payload, Ctx& ctx) 
     int bal = ctx.accounts->get_balance(u.id);
     rsp.set_code(code(ErrCode::Ok));
     rsp.set_balance(bal);
-    Frame f{.event_id = 0x08, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::AccountBalanceResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

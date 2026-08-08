@@ -25,7 +25,7 @@ std::vector<std::uint8_t> end_ride(const std::string& payload, Ctx& ctx) {
     auto fail = [&](ErrCode ec, std::string desc = "") {
         rsp.set_code(code(ec));
         rsp.set_desc(desc.empty() ? std::string(to_string(ec)) : desc);
-        Frame f{.event_id = 0x18, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::EndRideResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -49,7 +49,7 @@ std::vector<std::uint8_t> end_ride(const std::string& payload, Ctx& ctx) {
         rsp.set_distance_m(row->distance_m);
         rsp.set_amount_cent(row->amount_cent);
         rsp.set_balance_after(ctx.accounts->get_balance(*uid));
-        Frame f{.event_id = 0x18, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::EndRideResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     }
     if (sess->user_id != *uid) return fail(ErrCode::Unauthorized);
@@ -97,7 +97,7 @@ std::vector<std::uint8_t> end_ride(const std::string& payload, Ctx& ctx) {
 
     BIKE_LOG_INFO("end_ride ride={} dur={} amt={} bal={}",
                   sess->ride_no, duration_sec, amount, new_bal);
-    Frame f{.event_id = 0x18, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::EndRideResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

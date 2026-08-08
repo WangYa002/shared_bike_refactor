@@ -29,7 +29,7 @@ std::vector<std::uint8_t> scan_unlock(const std::string& payload, Ctx& ctx) {
     auto fail = [&](ErrCode ec, std::string desc = "") {
         rsp.set_code(code(ec));
         rsp.set_desc(desc.empty() ? std::string(to_string(ec)) : desc);
-        Frame f{.event_id = 0x14, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::ScanUnlockResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -76,7 +76,7 @@ std::vector<std::uint8_t> scan_unlock(const std::string& payload, Ctx& ctx) {
     rsp.set_ride_no(ride_no);
     rsp.set_start_ts(s.start_ts);
     BIKE_LOG_INFO("scan_unlock user={} bike={} ride={}", *uid, req.bike_no(), ride_no);
-    Frame f{.event_id = 0x14, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::ScanUnlockResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

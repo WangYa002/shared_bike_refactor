@@ -13,8 +13,9 @@ option(BIKE_BUILD_TESTS "Build server tests" ON)
 option(BIKE_BUILD_CLIENT "Build Qt6 client" OFF)
 option(BIKE_BUILD_SERVER "Build bike-server binary" ON)
 
-# asio is vendored under third_party/asio (1.30.2). vcpkg's asio (when present)
-# still wins via find_package elsewhere; this is the fallback.
+# asio is vendored under third_party/asio (1.30.2); 模块二后仅 Qt 客户端仍使用
+# (bike_server_net 已移除)。vcpkg's asio (when present) still wins via
+# find_package elsewhere; this is the fallback.
 if(NOT TARGET asio::asio)
     set(ASIO_HEADER_PATH ${CMAKE_SOURCE_DIR}/third_party/asio)
     if(NOT EXISTS ${ASIO_HEADER_PATH}/asio.hpp)
@@ -42,7 +43,7 @@ endif()
 # MySQL client: Ubuntu's libmysqlclient-dev ships headers + lib but no cmake config.
 if(BIKE_BUILD_SERVER AND NOT TARGET MySQL::MySQL)
     find_path(MYSQL_INCLUDE_DIR mysql/mysql.h)
-    find_library(MYSQL_LIB NAMES mysqlclient)
+    find_library(MYSQL_LIB NAMES mysqlclient libmysql)
     if(NOT MYSQL_INCLUDE_DIR OR NOT MYSQL_LIB)
         message(FATAL_ERROR "mysqlclient not found — install libmysqlclient-dev")
     endif()
@@ -51,6 +52,23 @@ if(BIKE_BUILD_SERVER AND NOT TARGET MySQL::MySQL)
     target_link_libraries(bike_mysql_iface INTERFACE ${MYSQL_LIB})
     add_library(MySQL::MySQL ALIAS bike_mysql_iface)
 endif()
+
+# liburing: Linux-only 网关依赖 (模块二)。apt 的 liburing-dev 不带 CMake config,
+# 采用与 hiredis/mysql 同款的 find_path/find_library fallback; 不进 vcpkg.json。
+if(BIKE_BUILD_SERVER AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT TARGET uring::uring)
+    find_path(LIBURING_INCLUDE_DIR liburing.h)
+    find_library(LIBURING_LIB NAMES uring)
+    if(NOT LIBURING_INCLUDE_DIR OR NOT LIBURING_LIB)
+        message(FATAL_ERROR "liburing not found — install liburing-dev")
+    endif()
+    add_library(bike_uring_iface INTERFACE)
+    target_include_directories(bike_uring_iface INTERFACE ${LIBURING_INCLUDE_DIR})
+    target_link_libraries(bike_uring_iface INTERFACE ${LIBURING_LIB})
+    add_library(uring::uring ALIAS bike_uring_iface)
+endif()
+
+# 顶层开启 ctest, 保证 ctest --test-dir <build> 能发现子目录测试
+enable_testing()
 
 add_subdirectory(common)
 if(BIKE_BUILD_SERVER)

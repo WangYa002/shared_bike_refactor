@@ -1,7 +1,6 @@
 [server]
 listen = "0.0.0.0"
 port = 8888
-threads = 4
 
 [mysql]
 host = "mysql"
@@ -19,3 +18,13 @@ pool_size = 4
 [log]
 level = "info"
 file = "/var/log/bike-server/server.log"
+
+# io_uring 网关 (模块二)。旧 [server].threads 已删除, 并发度由 workers 控制。
+[uring]
+sq_depth = 256
+cq_depth = 512
+workers = 8
+rx_buf_bytes = 65536
+send_backlog_limit_bytes = 1048576
+idle_timeout_ms = 60000
+accept_backlog = 1024

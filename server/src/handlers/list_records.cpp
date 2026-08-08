@@ -10,7 +10,7 @@ std::vector<std::uint8_t> list_records(const std::string& payload, Ctx& ctx) {
 
     auto fail = [&](ErrCode ec) {
         rsp.set_code(code(ec));
-        Frame f{.event_id = 0x10, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::ListAccountRecordsResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -30,7 +30,7 @@ std::vector<std::uint8_t> list_records(const std::string& payload, Ctx& ctx) {
         pr->set_amount(r.amount);
         pr->set_timestamp(r.timestamp);
     }
-    Frame f{.event_id = 0x10, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::ListAccountRecordsResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

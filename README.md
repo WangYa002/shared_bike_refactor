@@ -7,7 +7,7 @@ C++17 refactor of a shared-bike backend + Qt6 desktop client.
 - `legacy/` — original C++03 source (libevent + protobuf + log4cpp), preserved for reference
 - `proto/` — protobuf schema
 - `common/` — shared static lib: FBEB protocol + errors
-- `server/` — backend (asio + hiredis + mysql + spdlog + toml++)
+- `server/` — backend (io_uring gateway + hiredis + mysql + spdlog + toml++; Linux-only binary)
 - `client/` — Qt6 desktop client
 - `docker/` — Dockerfile + docker-compose + mysql-init
 - `docs/superpowers/` — design + plan
@@ -30,10 +30,15 @@ Server listens on `0.0.0.0:8888` inside the container, mapped to host 8888.
 
 Then launch `build/client/Release/bike_client.exe` (or platform equivalent).
 
-## Wire protocol
+## Wire protocol (v2)
+
+> **破坏性变更**: 帧头由 10 字节升级为 14 字节(新增 `seq` u32 LE)。
+> server / client / bench / 集成脚本必须**原子协同发布**(同一次部署同时更新),
+> 旧客户端(10 字节帧头)连新服务端会因 magic/长度校验失败被快速断开, 不兼容。
 
     +4 bytes  magic       ASCII "FBEB"
     +2 bytes  event_id    u16 little-endian
+    +4 bytes  seq         u32 little-endian (客户端每连接自增, 服务端原样回带)
     +4 bytes  length      i32 little-endian (= N)
     +N bytes  payload     serialized protobuf
 

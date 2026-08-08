@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libprotobuf-dev protobuf-compiler \
     libhiredis-dev libmysqlclient-dev \
     libspdlog-dev libgtest-dev \
+    liburing-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # asio is vendored under third_party/asio/ (1.30.2); cmake picks it up from there.
@@ -18,7 +19,7 @@ RUN cmake -B build -S . -DBIKE_BUILD_TESTS=OFF -DBIKE_BUILD_CLIENT=OFF && \
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libprotobuf23 libhiredis0.14 libmysqlclient21 libspdlog1 \
+    libprotobuf23 libhiredis0.14 libmysqlclient21 libspdlog1 liburing2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

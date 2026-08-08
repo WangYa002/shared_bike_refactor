@@ -12,7 +12,7 @@ std::vector<std::uint8_t> mobile_code(const std::string& payload, Ctx& ctx) {
         rsp.set_code(code(ec));
         rsp.set_icode(icode);
         rsp.set_data(std::string(to_string(ec)));
-        Frame f{.event_id = 0x02, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::MobileResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 

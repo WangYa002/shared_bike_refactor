@@ -11,7 +11,7 @@ std::vector<std::uint8_t> report_damage(const std::string& payload, Ctx& ctx) {
     auto fail = [&](ErrCode ec, std::string desc = "") {
         rsp.set_code(code(ec));
         rsp.set_desc(desc.empty() ? std::string(to_string(ec)) : desc);
-        Frame f{.event_id = 0x1A, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::ReportDamageResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -29,7 +29,7 @@ std::vector<std::uint8_t> report_damage(const std::string& payload, Ctx& ctx) {
 
     rsp.set_code(code(ErrCode::Ok));
     rsp.set_desc(std::string(to_string(ErrCode::Ok)));
-    Frame f{.event_id = 0x1A, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::ReportDamageResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

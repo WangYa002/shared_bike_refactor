@@ -36,8 +36,9 @@ services:
     expose:
       - "8888"
     environment:
-      BIKE_INSTANCE_ID: "1"
-      BIKE_BIZ_THREADS: "16"
+      # io_uring 网关 worker 数(取代已失效的 BIKE_BIZ_THREADS);
+      # BIKE_INSTANCE_ID 无代码消费, 已清理。
+      BIKE_GATEWAY_WORKERS: "16"
     volumes:
       - ./server.toml:/etc/bike/server.toml:ro
       - server-logs-1:/var/log/bike-server
@@ -56,8 +57,7 @@ services:
     expose:
       - "8888"
     environment:
-      BIKE_INSTANCE_ID: "2"
-      BIKE_BIZ_THREADS: "16"
+      BIKE_GATEWAY_WORKERS: "16"
     volumes:
       - ./server.toml:/etc/bike/server.toml:ro
       - server-logs-2:/var/log/bike-server

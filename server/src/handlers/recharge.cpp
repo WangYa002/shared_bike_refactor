@@ -11,7 +11,7 @@ std::vector<std::uint8_t> recharge(const std::string& payload, Ctx& ctx) {
     auto fail = [&](ErrCode ec) {
         rsp.set_code(code(ec));
         rsp.set_desc(std::string(to_string(ec)));
-        Frame f{.event_id = 0x06, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::RechargeResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -31,7 +31,7 @@ std::vector<std::uint8_t> recharge(const std::string& payload, Ctx& ctx) {
     rsp.set_code(code(ErrCode::Ok));
     rsp.set_balance(new_bal);
     rsp.set_desc(std::string(to_string(ErrCode::Ok)));
-    Frame f{.event_id = 0x06, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::RechargeResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

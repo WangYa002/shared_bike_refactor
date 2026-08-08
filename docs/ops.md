@@ -2,6 +2,12 @@
 
 ## 部署
 
+> **网关已切换到 io_uring(模块二)**: `bike-server` 构建目标已 gate 到 Linux-only,
+> 宿主机/容器需 `liburing-dev`(Docker 镜像已内置)。Windows 本地无法编译
+> io_uring 实体, 仅能构建并运行 gateway 纯逻辑测试(bike_gateway_core:
+> 切帧/OutboxQueue/Sink)与 common/server 其余单测;
+> bike-server 完整链接与运行验证一律在云服务器/Docker 内进行。
+
 1. SSH 到 Tencent Cloud: `ssh ubuntu@124.220.92.243`
 2. 在服务器上拉最新代码:
    ```bash
@@ -26,6 +32,10 @@
 
 ## 已知限制
 
+- **空闲连接强关**: 网关每轮事件循环检查连接空闲时长, 超过 `[uring].idle_timeout_ms`
+  (默认 60000ms) 未收到任何字节的连接会被服务端主动断开。
+  客户端侧表现为: 长时间无请求后下一次操作会报"网络异常"并重连, 属预期行为;
+  需要长驻的连接应在 60s 内保持有请求往来(或调大配置)。
 - `RideSessionStore` 在内存中,server 重启会丢失所有活跃骑行会话
 - 重启后:所有 `bike.status=1` (rented) 的车会卡死,用户无法再扫码该车
 - `scan_unlock` 的 ride_no daily_seq 用 `now_unix() % 999999` 占位 —— 高并发下可能撞号,生产应换 Redis INCR
@@ -65,13 +75,16 @@ docker compose -f docker/docker-compose.test.yml down
 
 ## 端口/事件 ID 速查
 
+> 事件号以 `bike::Event` 枚举(`common/include/bike/protocol.hpp`)为唯一事实来源,
+> 下表仅为速查; 不一致时以枚举为准。
+
 | Event ID | Direction | Name |
 |---|---|---|
 | 0x01 / 0x02 | req/rsp | mobile_code |
 | 0x03 / 0x04 | req/rsp | login |
 | 0x05 / 0x06 | req/rsp | recharge |
 | 0x07 / 0x08 | req/rsp | account_balance |
-| 0x09 / 0x0A | req/rsp | list_records |
+| 0x09 / 0x10 | req/rsp | list_records |
 | 0x11 / 0x12 | req/rsp | list_nearby_bikes |
 | 0x13 / 0x14 | req/rsp | scan_unlock |
 | 0x15 | oneway | position_report |

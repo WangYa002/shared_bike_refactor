@@ -11,6 +11,7 @@ shared_bike 压测客户端 — 纯 Python, 零依赖 (只用 asyncio + struct)
 协议 (与 common/include/bike/protocol.hpp 一致):
   +4 bytes magic "FBEB"
   +2 bytes event_id (u16 LE)
+  +4 bytes seq      (u32 LE, 服务端仅回带不校验, bench 固定 0)
   +4 bytes length   (i32 LE)
   +N bytes payload  (serialized protobuf)
 
@@ -27,7 +28,7 @@ import time
 import statistics
 
 MAGIC = b'FBEB'
-HEADER_LEN = 10
+HEADER_LEN = 14
 MAX_MSG_LEN = 372680
 
 # ----------------- minimal protobuf encoding -----------------
@@ -63,15 +64,16 @@ def encode_login_request(mobile: str, icode: int) -> bytes:
 
 # ----------------- frame encode/decode -----------------
 
-def encode_frame(eid: int, payload: bytes) -> bytes:
-    return MAGIC + struct.pack('<Hi', eid, len(payload)) + payload
+def encode_frame(eid: int, payload: bytes, seq: int = 0) -> bytes:
+    return MAGIC + struct.pack('<HIi', eid, seq, len(payload)) + payload
 
 async def read_frame(reader):
     hdr = await reader.readexactly(HEADER_LEN)
     if hdr[:4] != MAGIC:
         raise ValueError(f"bad magic: {hdr[:4]!r}")
     eid, = struct.unpack('<H', hdr[4:6])
-    length, = struct.unpack('<i', hdr[6:10])
+    # hdr[6:10] = seq (u32 LE), bench 不校验回带
+    length, = struct.unpack('<i', hdr[10:14])
     if length < 0 or length > MAX_MSG_LEN:
         raise ValueError(f"bad length: {length}")
     body = await reader.readexactly(length) if length > 0 else b''

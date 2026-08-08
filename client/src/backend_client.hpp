@@ -57,6 +57,13 @@ private:
     int port_;
     asio::io_context ioc_;
     std::atomic<bool> pos_sending_{false};  // 上报位置时的 backpressure flag
+    // 帧头 seq: 客户端每连接自增, 服务端原样回带(不配对不校验)
+    std::atomic<std::uint32_t> seq_counter_{0};
+
+    std::uint32_t next_seq() {
+        std::uint32_t s = seq_counter_.fetch_add(1, std::memory_order_relaxed) + 1;
+        return s == 0 ? 1 : s;   // 回绕跳过 0
+    }
 };
 
 } // namespace bike::client

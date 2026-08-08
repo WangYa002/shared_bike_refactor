@@ -78,7 +78,7 @@ TEST(Handlers, MobileCodeEventId) {
     req.set_mobile("15600000000");
     auto bytes = handlers::mobile_code(req.SerializeAsString(), env.ctx);
     auto f = parse_frame(bytes);
-    EXPECT_EQ(f.event_id, 0x02);
+    EXPECT_EQ(f.event_id, event_id(Event::MobileResponse));
 }
 
 TEST(Handlers, LoginWrongCodeFails) {

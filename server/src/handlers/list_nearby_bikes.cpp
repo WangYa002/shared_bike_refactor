@@ -14,7 +14,7 @@ std::vector<std::uint8_t> list_nearby_bikes(const std::string& payload, Ctx& ctx
     tutorial::list_nearby_bikes_response rsp;
     auto fail = [&](ErrCode ec) {
         rsp.set_code(code(ec));
-        Frame f{.event_id = 0x12, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::ListNearbyBikesResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -46,7 +46,7 @@ std::vector<std::uint8_t> list_nearby_bikes(const std::string& payload, Ctx& ctx
         bi->set_lng(b.lng);
         bi->set_status(static_cast<int>(b.status));
     }
-    Frame f{.event_id = 0x12, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::ListNearbyBikesResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

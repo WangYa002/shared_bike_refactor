@@ -11,7 +11,7 @@ std::vector<std::uint8_t> login(const std::string& payload, Ctx& ctx) {
     auto fail = [&](ErrCode ec) {
         rsp.set_code(code(ec));
         rsp.set_desc(std::string(to_string(ec)));
-        Frame f{.event_id = 0x04, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::LoginResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -33,7 +33,7 @@ std::vector<std::uint8_t> login(const std::string& payload, Ctx& ctx) {
     rsp.set_code(code(ErrCode::Ok));
     rsp.set_desc(std::string(to_string(ErrCode::Ok)));
     rsp.set_session_token(token);
-    Frame f{.event_id = 0x04, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::LoginResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

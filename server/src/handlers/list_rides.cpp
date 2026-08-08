@@ -23,7 +23,7 @@ std::vector<std::uint8_t> list_rides(const std::string& payload, Ctx& ctx) {
     tutorial::list_rides_response rsp;
     auto fail = [&](ErrCode ec) {
         rsp.set_code(code(ec));
-        Frame f{.event_id = 0x1E, .payload = rsp.SerializeAsString()};
+        Frame f{.event_id = event_id(Event::ListRidesResponse), .payload = rsp.SerializeAsString()};
         return encode(f);
     };
 
@@ -45,7 +45,7 @@ std::vector<std::uint8_t> list_rides(const std::string& payload, Ctx& ctx) {
         s->set_distance_m(r.distance_m);
         s->set_amount_cent(r.amount_cent);
     }
-    Frame f{.event_id = 0x1E, .payload = rsp.SerializeAsString()};
+    Frame f{.event_id = event_id(Event::ListRidesResponse), .payload = rsp.SerializeAsString()};
     return encode(f);
 }
 

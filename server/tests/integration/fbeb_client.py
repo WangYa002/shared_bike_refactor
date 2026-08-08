@@ -1,6 +1,7 @@
 """Minimal FBEB client for integration tests.
 
-Wire format: 'FBEB' + uint16_le event_id + uint32_le length + payload
+Wire format (14-byte header):
+'FBEB' + uint16_le event_id + uint32_le seq + uint32_le length + payload
 """
 import socket
 import struct
@@ -29,15 +30,24 @@ class FBEBClient:
     def __init__(self, host: str, port: int):
         self._sock = socket.create_connection((host, port))
         self._pb = _load_messages()
+        self._seq = 0   # 每连接自增, 服务端原样回带
+
+    def _next_seq(self) -> int:
+        self._seq = (self._seq + 1) & 0xFFFFFFFF
+        if self._seq == 0:
+            self._seq = 1
+        return self._seq
 
     @property
     def pb(self):
         """Access the loaded bike_pb2 module for message construction."""
         return self._pb
 
-    def _send(self, event_id: int, payload: bytes) -> None:
-        header = self.MAGIC + struct.pack('<HI', event_id, len(payload))
+    def _send(self, event_id: int, payload: bytes) -> int:
+        seq = self._next_seq()
+        header = self.MAGIC + struct.pack('<HII', event_id, seq, len(payload))
         self._sock.sendall(header + payload)
+        return seq
 
     def _recvn(self, n: int) -> bytes:
         buf = b''
@@ -48,18 +58,20 @@ class FBEBClient:
             buf += chunk
         return buf
 
-    def _recv(self) -> tuple[int, bytes]:
-        header = self._recvn(10)
+    def _recv(self) -> tuple[int, int, bytes]:
+        header = self._recvn(14)
         if header[:4] != self.MAGIC:
             raise ConnectionError(f"bad magic {header[:4]!r}")
-        event_id, length = struct.unpack('<HI', header[4:])
+        event_id, seq, length = struct.unpack('<HII', header[4:])
         payload = self._recvn(length) if length else b''
-        return event_id, payload
+        return event_id, seq, payload
 
     def call(self, event_id: int, request_msg) -> bytes:
-        """Round-trip: send request, return response payload bytes."""
-        self._send(event_id, request_msg.SerializeToString())
-        _, payload = self._recv()
+        """Round-trip: send request, verify seq echo, return response payload."""
+        seq = self._send(event_id, request_msg.SerializeToString())
+        _, rsp_seq, payload = self._recv()
+        if rsp_seq != seq:
+            raise ConnectionError(f"seq mismatch: sent {seq}, got {rsp_seq}")
         return payload
 
     def send_oneway(self, event_id: int, request_msg) -> None:

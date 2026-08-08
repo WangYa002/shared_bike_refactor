@@ -5,10 +5,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libprotobuf-dev protobuf-compiler \
     libhiredis-dev libmysqlclient-dev \
     libspdlog-dev libgtest-dev \
+    liburing-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
-RUN cmake -B build -S . -DBIKE_BUILD_TESTS=ON -DBIKE_BUILD_CLIENT=OFF -DBIKE_BUILD_SERVER=OFF && \
+# BIKE_BUILD_SERVER=ON: Linux 容器内可构建 gateway 目标与全部单测
+# (bike_server_gateway/bike-server 已 gate 到 Linux-only)
+RUN cmake -B build -S . -DBIKE_BUILD_TESTS=ON -DBIKE_BUILD_CLIENT=OFF -DBIKE_BUILD_SERVER=ON && \
     cmake --build build -j"$(nproc)"
-WORKDIR /src/build/server
+WORKDIR /src/build
 CMD ["ctest", "--output-on-failure"]

@@ -2,6 +2,7 @@
 
 #include <condition_variable>
 #include <cstddef>
+#include <cstdio>
 #include <functional>
 #include <mutex>
 #include <queue>
@@ -28,7 +29,14 @@ public:
                         task = std::move(q_.front());
                         q_.pop();
                     }
-                    task();
+                    // 单任务异常不得杀死池内线程(否则并发能力静默衰减)
+                    try {
+                        task();
+                    } catch (const std::exception& e) {
+                        std::fprintf(stderr, "[thread_pool] task threw: %s\n", e.what());
+                    } catch (...) {
+                        std::fprintf(stderr, "[thread_pool] task threw non-std exception\n");
+                    }
                 }
             });
         }

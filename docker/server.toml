@@ -28,3 +28,20 @@ rx_buf_bytes = 65536
 send_backlog_limit_bytes = 1048576
 idle_timeout_ms = 60000
 accept_backlog = 1024
+
+# 模块三 mmap IPC 环 (Gateway ↔ Dispatch 双进程)。
+# mode="ring": 双进程, 请求/响应走 /dev/shm SPSC 环;
+# mode="inprocess": 回退单进程, 进程内直连 Router(不需 bike-dispatch)。
+# req/rsp_ring_slots 必须与编译期常量 ReqRing/RspRing::kSlotCount 一致,
+# 不一致时 load_config 报错。
+[ipc]
+mode = "ring"
+shm_root = "/dev/shm"        # FIFO 目录(shm 文件由 shm_open 固定落 /dev/shm)
+shm_prefix = "bike"
+instance = 0                  # 可被 BIKE_INSTANCE 环境变量覆盖
+open_timeout_ms = 10000       # Gateway 等待 Dispatch 建环上限
+peer_timeout_ms = 5000        # 对端心跳超时(判死→进程退出重拉)
+spin_tries = 64               # 读方睡眠前自旋次数
+dispatch_workers = 16         # Dispatch 业务线程数 M
+req_ring_slots = 512
+rsp_ring_slots = 256

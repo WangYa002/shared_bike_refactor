@@ -1,5 +1,7 @@
 #include "server/config.hpp"
 
+#include "bike/ipc/spsc_ring.hpp"   // [ipc] 槽数常量对齐校验
+
 #include <toml.hpp>
 #include <cstdio>
 #include <stdexcept>
@@ -42,6 +44,27 @@ void validate_uring(Config::Uring& u) {
 
     if (u.accept_backlog < 1) bad("[uring].accept_backlog must be >= 1");
     if (u.accept_backlog > 65535) u.accept_backlog = 65535;
+}
+
+// [ipc] 段校验(模块三): mode 枚举 + 槽数与编译期常量对齐 + 参数区间。
+void validate_ipc(Config::Ipc& ipc) {
+    if (ipc.mode != "ring" && ipc.mode != "inprocess")
+        bad("[ipc].mode must be \"ring\" or \"inprocess\"");
+    if (ipc.shm_prefix.empty()) bad("[ipc].shm_prefix must be non-empty");
+    if (ipc.instance < 0 || ipc.instance > 99) bad("[ipc].instance must be in [0, 99]");
+    if (ipc.open_timeout_ms < 100) bad("[ipc].open_timeout_ms must be >= 100");
+    if (ipc.peer_timeout_ms < 100) bad("[ipc].peer_timeout_ms must be >= 100");
+    if (ipc.spin_tries < 0 || ipc.spin_tries > 10000)
+        bad("[ipc].spin_tries must be in [0, 10000]");
+    if (ipc.dispatch_workers < 1 || ipc.dispatch_workers > 1024)
+        bad("[ipc].dispatch_workers must be in [1, 1024]");
+    // 槽数为 v1 编译期常量: 配置不一致即启动报错, 防止双进程布局错位。
+    if (ipc.req_ring_slots != static_cast<int>(bike::ipc::ReqRing::kSlotCount))
+        bad("[ipc].req_ring_slots must equal compiled ReqRing::kSlotCount (" +
+            std::to_string(bike::ipc::ReqRing::kSlotCount) + ")");
+    if (ipc.rsp_ring_slots != static_cast<int>(bike::ipc::RspRing::kSlotCount))
+        bad("[ipc].rsp_ring_slots must equal compiled RspRing::kSlotCount (" +
+            std::to_string(bike::ipc::RspRing::kSlotCount) + ")");
 }
 } // namespace
 
@@ -93,6 +116,19 @@ Config load_config(const std::string& path) {
         cfg.uring.accept_backlog             = get_or<std::int64_t>(*u, "accept_backlog",             cfg.uring.accept_backlog);
     }
     validate_uring(cfg.uring);
+    if (auto* i = root["ipc"].as_table()) {
+        cfg.ipc.mode             = get_or<std::string>(*i, "mode",             cfg.ipc.mode);
+        cfg.ipc.shm_root         = get_or<std::string>(*i, "shm_root",         cfg.ipc.shm_root);
+        cfg.ipc.shm_prefix       = get_or<std::string>(*i, "shm_prefix",       cfg.ipc.shm_prefix);
+        cfg.ipc.instance         = get_or<std::int64_t>(*i, "instance",         cfg.ipc.instance);
+        cfg.ipc.open_timeout_ms  = get_or<std::int64_t>(*i, "open_timeout_ms",  cfg.ipc.open_timeout_ms);
+        cfg.ipc.peer_timeout_ms  = get_or<std::int64_t>(*i, "peer_timeout_ms",  cfg.ipc.peer_timeout_ms);
+        cfg.ipc.spin_tries       = get_or<std::int64_t>(*i, "spin_tries",       cfg.ipc.spin_tries);
+        cfg.ipc.dispatch_workers = get_or<std::int64_t>(*i, "dispatch_workers", cfg.ipc.dispatch_workers);
+        cfg.ipc.req_ring_slots   = get_or<std::int64_t>(*i, "req_ring_slots",   cfg.ipc.req_ring_slots);
+        cfg.ipc.rsp_ring_slots   = get_or<std::int64_t>(*i, "rsp_ring_slots",   cfg.ipc.rsp_ring_slots);
+    }
+    validate_ipc(cfg.ipc);
     return cfg;
 }
 

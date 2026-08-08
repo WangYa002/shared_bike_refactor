@@ -11,7 +11,7 @@ endif()
 
 option(BIKE_BUILD_TESTS "Build server tests" ON)
 option(BIKE_BUILD_CLIENT "Build Qt6 client" OFF)
-option(BIKE_BUILD_SERVER "Build bike-server binary" ON)
+option(BIKE_BUILD_SERVER "Build bike-gateway/bike-dispatch binaries" ON)
 
 # asio is vendored under third_party/asio (1.30.2); 模块二后仅 Qt 客户端仍使用
 # (bike_server_net 已移除)。vcpkg's asio (when present) still wins via

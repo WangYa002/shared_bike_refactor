@@ -7,7 +7,10 @@ C++17 refactor of a shared-bike backend + Qt6 desktop client.
 - `legacy/` — original C++03 source (libevent + protobuf + log4cpp), preserved for reference
 - `proto/` — protobuf schema
 - `common/` — shared static lib: FBEB protocol + errors
-- `server/` — backend (io_uring gateway + hiredis + mysql + spdlog + toml++; Linux-only binary)
+- `server/` — backend, 双二进制双进程形态 (模块三): `bike-gateway`(io_uring 纯网关:
+  接入/切帧/协议解析) + `bike-dispatch`(业务: Router/repo/会话), 经 /dev/shm 上的
+  mmap SPSC IPC 环 + FIFO 通知连接; `[ipc].mode="inprocess"` 可回退单进程形态。
+  Linux-only binaries (io_uring + hiredis + mysql + spdlog + toml++)
 - `client/` — Qt6 desktop client
 - `docker/` — Dockerfile + docker-compose + mysql-init
 - `docs/superpowers/` — design + plan
@@ -21,7 +24,9 @@ See [docs/ops.md](docs/ops.md) for the ops runbook (deploy steps, stuck-bike rec
 
     docker compose -f docker/docker-compose.yml up --build
 
-Server listens on `0.0.0.0:8888` inside the container, mapped to host 8888.
+每实例一对容器: `bike-dispatch-N`(业务, 先启动建环) + `bike-server-N`(bike-gateway
+纯网关, 容器名为历史沿用); gateway 在容器内监听 `0.0.0.0:8888`, 经 nginx
+stream 代理映射到宿主机 8888。详见 [docs/ops.md](docs/ops.md)。
 
 ### Client (Qt6 + CMake on Windows)
 

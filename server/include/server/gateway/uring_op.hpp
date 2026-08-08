@@ -15,6 +15,7 @@ enum class OpKind : std::uint8_t {
     Send,     // IORING_OP_SEND,   conn != nullptr
     Wakeup,   // IORING_OP_READ on eventfd(worker→主线程通道), conn == nullptr
     Stop,     // IORING_OP_READ on stop_eventfd(信号→主线程), conn == nullptr
+    RspNotify,// IORING_OP_READ on rsp_notify FIFO(Dispatch→主线程, 模块三), conn == nullptr
 };
 
 struct UringOp {

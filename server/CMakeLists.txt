@@ -49,9 +49,34 @@ add_library(bike_gateway_core STATIC
 target_include_directories(bike_gateway_core PUBLIC include)
 target_link_libraries(bike_gateway_core PUBLIC bike_server_core)
 
-# ---- Gateway io_uring 实体 + server 可执行文件: 仅 Linux ----
-# Windows 开发机无法编译 io_uring, 部署阶段在云服务器/Docker 内验证。
+# ---- 模块三 IPC 纯逻辑库 (跨平台) ----
+# IpcPacket/shm 布局/SpscRing/ReplyQueue 均为 header-only 纯逻辑,
+# 无系统调用; Windows 单测直接验证无锁协议。
+add_library(bike_ipc_core INTERFACE)
+target_include_directories(bike_ipc_core INTERFACE include)
+if(MSVC)
+    # 头文件含中文注释, 消费方需 /utf-8(与 bike_server_config 同理)
+    target_compile_options(bike_ipc_core INTERFACE /utf-8)
+endif()
+
+# ---- Gateway io_uring 实体 + 双进程可执行文件: 仅 Linux ----
+# Windows 开发机无法编译 io_uring/shm, 部署阶段在云服务器/Docker 内验证。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # 模块三 Linux 粘合层: shm/FIFO/RingSink/RingSource
+    add_library(bike_ipc STATIC
+        src/ipc/shm_region.cpp
+        src/ipc/fifo_channel.cpp
+        src/ipc/ring_sink.cpp
+        src/ipc/ring_source.cpp
+    )
+    target_include_directories(bike_ipc PUBLIC include)
+    target_link_libraries(bike_ipc PUBLIC
+        bike_gateway_core      # PacketSink 接口
+        bike_ipc_core
+        bike_server_logging
+        rt                     # shm_open(旧 glibc 兼容)
+    )
+
     add_library(bike_server_gateway STATIC
         src/gateway/uring_engine.cpp
         src/gateway/worker_outbox.cpp
@@ -59,20 +84,40 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_include_directories(bike_server_gateway PUBLIC include)
     target_link_libraries(bike_server_gateway PUBLIC
         bike_gateway_core
+        bike_ipc_core
         uring::uring
     )
 
-    # Server binary
-    add_executable(bike-server src/main.cpp)
-    target_link_libraries(bike-server PRIVATE
-        bike_server_gateway
+    # 业务装配库: Ctx 工厂 + 全协议 handler 注册(gateway inprocess 回退 / dispatch 共用)
+    add_library(bike_server_app STATIC
+        src/app/ctx_factory.cpp
+    )
+    target_include_directories(bike_server_app PUBLIC include)
+    target_link_libraries(bike_server_app PUBLIC
+        bike_server_core
         bike_server_prod
+    )
+
+    # 纯网关进程(ring 模式下业务路径不进链接闭包外的运行路径;
+    # inprocess 回退模式需要 bike_server_app)
+    add_executable(bike-gateway src/gateway_main.cpp)
+    target_link_libraries(bike-gateway PRIVATE
+        bike_server_gateway
+        bike_ipc
+        bike_server_app
+    )
+
+    # 业务 Dispatch 进程(RideSessionStore/全部 repo 归此)
+    add_executable(bike-dispatch src/dispatch/dispatch_main.cpp)
+    target_link_libraries(bike-dispatch PRIVATE
+        bike_server_app
+        bike_ipc
     )
 endif()
 
 # Prod DB + Redis implementations (hiredis::hiredis and MySQL::MySQL come from top-level fallbacks)
 # Linux-only: mysql_pool/redis_session_store 依赖 POSIX 头文件(sys/time.h 等),
-# Windows 本地无法编译, 与 bike-server 一并留待部署阶段验证。
+# Windows 本地无法编译, 与 bike-gateway/bike-dispatch 一并留待部署阶段验证。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 add_library(bike_server_prod STATIC
     src/db/mysql_pool.cpp
@@ -90,7 +135,7 @@ target_link_libraries(bike_server_prod PUBLIC
 )
 endif()
 
-# Server binary 已移入上方 Linux-only 分支 (bike_server_gateway 块)。
+# Server binary 已拆为 bike-gateway / bike-dispatch (上方 Linux-only 分支)。
 
 # Tests
 enable_testing()
@@ -120,6 +165,13 @@ if(GTest_FOUND)
     add_executable(test_router_sink tests/test_router_sink.cpp)
     target_link_libraries(test_router_sink PRIVATE bike_gateway_core GTest::gtest_main)
 
+    # 模块三 IPC 纯逻辑测试 (跨平台: 堆内存验证无锁协议)
+    add_executable(test_ipc_packet tests/test_ipc_packet.cpp)
+    target_link_libraries(test_ipc_packet PRIVATE bike_ipc_core GTest::gtest_main)
+
+    add_executable(test_spsc_ring tests/test_spsc_ring.cpp)
+    target_link_libraries(test_spsc_ring PRIVATE bike_ipc_core GTest::gtest_main)
+
     add_test(NAME config  COMMAND test_config)
     add_test(NAME handlers COMMAND test_handlers)
     add_test(NAME ride_session_store COMMAND test_ride_session_store)
@@ -127,4 +179,14 @@ if(GTest_FOUND)
     add_test(NAME frame_cut      COMMAND test_frame_cut)
     add_test(NAME outbox_queue   COMMAND test_outbox_queue)
     add_test(NAME router_sink    COMMAND test_router_sink)
+    add_test(NAME ipc_packet     COMMAND test_ipc_packet)
+    add_test(NAME spsc_ring      COMMAND test_spsc_ring)
+endif()
+
+# 模块三 Linux 双进程集成测试: fork 真实 shm_open/mmap 验证端到端协议。
+# Windows 不可构建不可运行, 仅部署阶段(Docker/Linux)跑。
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND GTest_FOUND)
+    add_executable(test_ipc_linux tests/test_ipc_linux.cpp)
+    target_link_libraries(test_ipc_linux PRIVATE bike_ipc GTest::gtest_main)
+    add_test(NAME ipc_linux COMMAND test_ipc_linux)
 endif()

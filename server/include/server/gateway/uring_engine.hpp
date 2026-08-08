@@ -18,6 +18,7 @@
 #include "server/gateway/packet_sink.hpp"
 #include "server/gateway/uring_op.hpp"
 #include "server/gateway/worker_outbox.hpp"
+#include "bike/ipc/spsc_ring.hpp"
 
 namespace bike::gateway {
 
@@ -49,8 +50,13 @@ public:
     UringEngine(const UringEngine&) = delete;
     UringEngine& operator=(const UringEngine&) = delete;
 
-    // 阻塞当前线程运行事件循环, 直到收到停止请求且 drain 完成。
+    // 阻塞当前线程运行事件循环, 直至收到停止请求且 drain 完成。
     void run();
+    
+    // 模块三 ring 模式: 接入响应环(Dispatch 写, 本进程单读者)与 rsp_notify FIFO。
+    // 必须在 run() 之前调用; 不调用则引擎不碰 IPC(回退 inprocess 模式)。
+    void attach_ipc(bike::ipc::RspRing::Consumer rsp, int rsp_notify_fd,
+                    std::chrono::milliseconds peer_timeout);
 
     // 信号处理中调用(async-signal-safe: 原子置位 + write(stop_eventfd))。
     void request_stop() noexcept;
@@ -67,7 +73,10 @@ private:
     void complete_send(UringOp& op, int res);
     void complete_wakeup(UringOp& op);
     void complete_stop(UringOp& op);
+    void complete_rsp_notify(UringOp& op, int res);  // 模块三: 响应通知到达
     void drain_outbox();               // 处理 worker 交还项(Respond/RearmRecv/Close)
+    void drain_response_ring();        // 模块三: 响应环取完整帧直发(零解析, 仅主线程)
+    bool push_response(Connection& conn, std::vector<std::uint8_t> frame); // 背压+send_push
     void sweep_idle();                 // 空闲超时清理(每轮收割后)
     bool drain_complete();             // 停机期: 连接排空或 deadline 到
 
@@ -80,6 +89,7 @@ private:
     bool submit_send(Connection& conn);   // 失败 false(数据留队列等再武装)
     void submit_eventfd_read();        // 重新武装 Wakeup op
     void submit_stop_read();           // stop_eventfd 读(信号唤醒)
+    void submit_rsp_notify_read();     // 模块三: 重新武装 RspNotify op(FIFO 读)
     bool submit_cancel(UringOp* target); // 定向取消在途 op(匿名 SQE); 失败 false
 
     // ---- 连接管理 ----
@@ -113,6 +123,17 @@ private:
     // 保证 worker 存活期间 outbox_ 始终有效。
     WorkerOutbox outbox_;
     bike::server::ThreadPool workers_;
+
+    // ---- 模块三 IPC(仅 attach_ipc 后有效; 只由主线程使用) ----
+    bike::ipc::RspRing::Consumer rsp_consumer_;
+    int rsp_notify_fd_{-1};                          // 不拥有(fd 由调用方关闭)
+    std::uint8_t rsp_notify_buf_[64]{};              // RspNotify read 缓冲(常驻单 op)
+    std::chrono::milliseconds ipc_peer_timeout_{5000};
+    std::chrono::steady_clock::time_point last_rsp_hb_{};  // 心跳/判活节流(1s)
+    int rsp_notify_fail_streak_{0};                        // rsp notify 连续失败计数(退避用)
+    std::uint64_t rsp_popped_total_{0};                    // 周期指标: 累计 pop 响应数
+    std::uint32_t rsp_batch_peak_{0};                      // 周期指标: 单批 pop 峰值
+    std::chrono::steady_clock::time_point last_rsp_metrics_{};  // 指标日志节流(30s)
 };
 
 } // namespace bike::gateway

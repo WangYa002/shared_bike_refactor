@@ -12,9 +12,12 @@
 
 #include <bike/protocol.hpp>
 
+#include "bike/ipc/ipc_errors.hpp"
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <signal.h>
 #include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -31,6 +34,11 @@ constexpr std::chrono::seconds kDrainDeadline{5};   // 优雅停机 drain 上限
 constexpr std::chrono::seconds kReapHardLimit{2};   // 强制关闭后回收 CQE 上限
 // SQ 耗尽触发的 drain 无外部停止信号兜底, 需独立硬上限防无限空转
 constexpr std::chrono::seconds kExhaustDrainLimit{10};
+
+std::uint64_t steady_now_ns() {
+    return static_cast<std::uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+}
 } // namespace
 
 UringEngine::UringEngine(GatewayOptions opt,
@@ -66,6 +74,13 @@ void UringEngine::request_stop() noexcept {
     }
 }
 
+void UringEngine::attach_ipc(bike::ipc::RspRing::Consumer rsp, int rsp_notify_fd,
+                             std::chrono::milliseconds peer_timeout) {
+    rsp_consumer_ = std::move(rsp);
+    rsp_notify_fd_ = rsp_notify_fd;
+    ipc_peer_timeout_ = peer_timeout;
+}
+
 // ---------------------------------------------------------------- 主循环
 
 void UringEngine::run() {
@@ -75,6 +90,7 @@ void UringEngine::run() {
     submit_accept();
     submit_eventfd_read();
     submit_stop_read();
+    if (rsp_notify_fd_ >= 0) submit_rsp_notify_read();   // 模块三 ring 模式
     io_uring_submit(&ring_);
     BIKE_LOG_INFO("uring engine running: sq={} cq={} workers={}",
                   opt_.sq_depth, opt_.cq_depth, opt_.workers);
@@ -90,6 +106,9 @@ void UringEngine::run() {
             BIKE_LOG_ERROR("io_uring_wait_cqe_timeout failed: {}", std::strerror(-rc));
             break;
         }
+
+        // 模块三: 每轮无条件查响应环(通知只是提示; 含对端判活节流)
+        drain_response_ring();
 
         if (!draining_) sweep_idle();
 
@@ -213,6 +232,7 @@ void UringEngine::on_cqe(struct io_uring_cqe& cqe) {
     case OpKind::Send:   complete_send(*op, cqe.res); break;
     case OpKind::Wakeup: complete_wakeup(*op); break;
     case OpKind::Stop:   complete_stop(*op); break;
+    case OpKind::RspNotify: complete_rsp_notify(*op, cqe.res); break;
     }
 }
 
@@ -310,7 +330,103 @@ void UringEngine::complete_stop(UringOp& op) {
     // 不重挂 stop read: 停一次就够
 }
 
+void UringEngine::complete_rsp_notify(UringOp& op, int res) {
+    delete &op;
+    if (res == -ECANCELED) return;   // 停机取消: 不重挂
+    if (res < 0) {
+        BIKE_LOG_WARN("rsp notify read failed: {}", std::strerror(-res));
+        // 持续失败退避(参照 accept_fail_streak_): 不立即重挂形成 tight loop,
+        // 超阈值后退一拍(由后续 drain/CQE 时机重新武装)。
+        if (++rsp_notify_fail_streak_ >= 8) {
+            rsp_notify_fail_streak_ = 0;
+            BIKE_LOG_WARN("rsp notify read failing repeatedly, backing off 1 tick");
+        } else {
+            submit_rsp_notify_read();
+        }
+        return;
+    }
+    rsp_notify_fail_streak_ = 0;
+    submit_rsp_notify_read();        // 一次性 read, 重新武装
+    drain_response_ring();           // 通知到 → 立即抽环(不等下轮)
+}
+
 // ---------------------------------------------------------------- outbox 派发
+
+bool UringEngine::push_response(Connection& conn, std::vector<std::uint8_t> frame) {
+    if (conn.send_backlog_bytes() + frame.size() > opt_.send_backlog_limit) {
+        close_conn(conn, "send backlog overflow");
+        return false;
+    }
+    conn.send_push(std::move(frame));
+    if (!conn.send_active()) submit_send(conn);
+    return true;
+}
+
+// 模块三: 响应环 → 客户端。槽内即 Dispatch 已 stamp_seq 的完整 FBEB 帧,
+// 主线程零解析直发; 连接不存在/已关则丢弃(请求期间断连是常态)。
+void UringEngine::drain_response_ring() {
+    if (!rsp_consumer_.valid()) return;
+
+    // ---- 1s 节流: 自心跳 + Dispatch 判活(进程级恢复决策, 设计稿 §7.6) ----
+    const auto now_tp = std::chrono::steady_clock::now();
+    if (now_tp - last_rsp_hb_ >= std::chrono::seconds(1)) {
+        last_rsp_hb_ = now_tp;
+        rsp_consumer_.heartbeat(steady_now_ns());
+        if (!stopping_.load(std::memory_order_relaxed)) {
+            const std::uint32_t pid = rsp_consumer_.producer_pid();
+            const std::uint64_t hb = rsp_consumer_.producer_heartbeat();
+            const std::uint64_t now = steady_now_ns();
+            const std::uint64_t limit =
+                static_cast<std::uint64_t>(ipc_peer_timeout_.count()) * 1000000ull;
+            bool dead = false;
+            if (pid != 0 && ::kill(static_cast<pid_t>(pid), 0) < 0 && errno != EPERM)
+                dead = true;
+            else if (hb != 0 && now - hb > limit)
+                dead = true;
+            if (dead) {
+                BIKE_LOG_ERROR("dispatch peer dead (pid={} hb_lag_ms={}); "
+                               "requesting restart (compose will relaunch)",
+                               pid, hb == 0 ? -1
+                                    : static_cast<long>((now - hb) / 1000000));
+                request_stop();
+            }
+        }
+    }
+
+    // ---- 30s 节流: 周期指标汇总(设计稿 §9.4, 响应环 pop 峰值) ----
+    if (now_tp - last_rsp_metrics_ >= std::chrono::seconds(30)) {
+        last_rsp_metrics_ = now_tp;
+        BIKE_LOG_INFO("gateway rsp ring metrics: popped_total={} batch_peak={}",
+                      rsp_popped_total_, rsp_batch_peak_);
+    }
+
+    // ---- 抽环直发 ----
+    for (;;) {
+        const bike::ipc::RspRing::Slot* batch = nullptr;
+        const std::uint32_t n = rsp_consumer_.pop_batch(&batch, 32);
+        if (n == 0) break;
+        rsp_popped_total_ += n;
+        if (n > rsp_batch_peak_) rsp_batch_peak_ = n;
+        for (std::uint32_t i = 0; i < n; ++i) {
+            const auto& pkt = batch[i].pkt;
+            if (pkt.payload_len == 0) continue;
+            // 上界校验(与 ring_source.cpp 对称): 防坏槽越界读并直发客户端
+            if (pkt.payload_len > bike::ipc::RspRing::kPayloadMax) {
+                BIKE_LOG_ERROR("rsp slot payload_len {} exceeds max {}, skipping",
+                               pkt.payload_len, bike::ipc::RspRing::kPayloadMax);
+                continue;
+            }
+            auto it = conns_.find(pkt.conn_id);
+            if (it == conns_.end()) continue;
+            Connection& conn = *it->second;
+            if (conn.state == ConnState::Closing) continue;
+            push_response(conn, std::vector<std::uint8_t>(
+                                    batch[i].payload,
+                                    batch[i].payload + pkt.payload_len));
+        }
+        rsp_consumer_.release(n);   // 发送拷贝完成后归还槽
+    }
+}
 
 void UringEngine::drain_outbox() {
     std::vector<OutboxItem> items;
@@ -323,12 +439,7 @@ void UringEngine::drain_outbox() {
 
         switch (it.kind) {
         case OutboxKind::Respond:
-            if (conn.send_backlog_bytes() + it.bytes.size() > opt_.send_backlog_limit) {
-                close_conn(conn, "send backlog overflow");
-            } else {
-                conn.send_push(std::move(it.bytes));
-                if (!conn.send_active()) submit_send(conn);
-            }
+            push_response(conn, std::move(it.bytes));
             break;
         case OutboxKind::RearmRecv:
             if (draining_) {   // 停机期: 完成在途处理后直接关, 不再收新请求
@@ -490,6 +601,17 @@ void UringEngine::submit_stop_read() {
     sqe->user_data = reinterpret_cast<std::uint64_t>(op);
 }
 
+void UringEngine::submit_rsp_notify_read() {
+    auto* sqe = get_sqe();
+    if (sqe == nullptr) return;   // 下轮超时唤醒会重新 drain; 重挂由 RspNotify CQE 驱动
+    auto* op = new UringOp{};
+    op->kind = OpKind::RspNotify;
+    // FIFO/管道类 fd: offset 传 -1(非可寻址设备)
+    io_uring_prep_read(sqe, rsp_notify_fd_, rsp_notify_buf_,
+                       sizeof(rsp_notify_buf_), static_cast<__u64>(-1));
+    sqe->user_data = reinterpret_cast<std::uint64_t>(op);
+}
+
 bool UringEngine::submit_cancel(UringOp* target) {
     auto* sqe = get_sqe();
     if (sqe == nullptr) return false;
@@ -513,8 +635,17 @@ void UringEngine::worker_batch(std::uint64_t conn_id, std::vector<std::uint8_t> 
 
         std::vector<std::uint8_t> reply;
         try {
-            // Step 2: 进程内直连 Router(handler 内做 protobuf 反序列化 + redis/mysql)
+            // inprocess: 进程内直连 Router; ring: 写请求环(响应异步回流)
             reply = sink_->handle(req, ctx_);
+        } catch (const bike::ipc::SinkOverload&) {
+            // 模块三: 请求环满 = 对端背压, 关连泄压(设计稿 §6.2)
+            BIKE_LOG_ERROR("ipc request ring full, closing conn {}", conn_id);
+            outbox_.push(OutboxItem{OutboxKind::Close, conn_id, {}});
+            return;
+        } catch (const bike::ipc::MalformedIpcRequest& e) {
+            BIKE_LOG_ERROR("ipc malformed request conn={}: {}", conn_id, e.what());
+            outbox_.push(OutboxItem{OutboxKind::Close, conn_id, {}});
+            return;
         } catch (const std::exception& e) {
             BIKE_LOG_ERROR("dispatch eid={} conn={} threw: {}",
                            req.event_id, conn_id, e.what());
@@ -524,6 +655,7 @@ void UringEngine::worker_batch(std::uint64_t conn_id, std::vector<std::uint8_t> 
                            req.event_id, conn_id);
         }
         if (!reply.empty()) {
+            // ring 模式下 sink 返回空帧, 不会走到这里(Dispatch 侧 stamp)。
             // 回带请求 seq(handler 编码时 seq=0); 失败说明帧已损坏,
             // 记错误日志并丢弃该响应帧, 绝不发脏帧给客户端。
             if (bike::stamp_seq(reply, req.seq)) {

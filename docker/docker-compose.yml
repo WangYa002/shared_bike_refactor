@@ -23,43 +23,104 @@ services:
       timeout: 3s
       retries: 30
 
+  # ---- 模块三: 实例 1 = bike-dispatch-1(建环方) + bike-server-1(纯网关) ----
+  # 每实例一对进程共享一个 256MB tmpfs 卷挂 /dev/shm, BIKE_INSTANCE 区分命名。
+  bike-dispatch-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    container_name: bike-dispatch-1
+    command: ["/app/bike-dispatch", "/etc/bike/server.toml"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      BIKE_INSTANCE: "0"
+      BIKE_GATEWAY_WORKERS: "16"
+      BIKE_LOG_FILE: /var/log/bike-dispatch/dispatch.log
+    volumes:
+      - ./server.toml:/etc/bike/server.toml:ro
+      - bike-shm-1:/dev/shm
+      - dispatch-logs-1:/var/log/bike-dispatch
+    healthcheck:
+      # 存在性+新鲜度复合检查: dispatch 每 1s touch alive 文件,
+      # -mmin -0.1 = 6s 内更新过才算健康(防进程卡死后文件残留误判)。
+      test: ["CMD-SHELL", "test -f /tmp/bike-dispatch0.alive && find /tmp/bike-dispatch0.alive -mmin -0.1 | grep -q ."]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # 容器名 bike-server-1 保留不改: nginx upstream 按此名引用;
+  # 实际运行 bike-gateway 纯网关二进制(模块三双进程拓扑)。
   bike-server-1:
     build:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-server-1
     depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
+      bike-dispatch-1:
         condition: service_healthy
     expose:
       - "8888"
     environment:
-      # io_uring 网关 worker 数(取代已失效的 BIKE_BIZ_THREADS);
-      # BIKE_INSTANCE_ID 无代码消费, 已清理。
+      # io_uring 网关 worker 数(= 请求环个数, 与 dispatch 侧 BIKE_GATEWAY_WORKERS 一致)
       BIKE_GATEWAY_WORKERS: "16"
+      BIKE_INSTANCE: "0"
     volumes:
       - ./server.toml:/etc/bike/server.toml:ro
+      - bike-shm-1:/dev/shm
       - server-logs-1:/var/log/bike-server
     restart: unless-stopped
 
+  # ---- 模块三: 实例 2 ----
+  bike-dispatch-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    container_name: bike-dispatch-2
+    command: ["/app/bike-dispatch", "/etc/bike/server.toml"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      BIKE_INSTANCE: "1"
+      BIKE_GATEWAY_WORKERS: "16"
+      BIKE_LOG_FILE: /var/log/bike-dispatch/dispatch.log
+    volumes:
+      - ./server.toml:/etc/bike/server.toml:ro
+      - bike-shm-2:/dev/shm
+      - dispatch-logs-2:/var/log/bike-dispatch
+    healthcheck:
+      # 存在性+新鲜度复合检查(同 bike-dispatch-1)
+      test: ["CMD-SHELL", "test -f /tmp/bike-dispatch1.alive && find /tmp/bike-dispatch1.alive -mmin -0.1 | grep -q ."]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # 容器名 bike-server-2 保留不改: nginx upstream 按此名引用;
+  # 实际运行 bike-gateway 纯网关二进制。
   bike-server-2:
     build:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-server-2
     depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
+      bike-dispatch-2:
         condition: service_healthy
     expose:
       - "8888"
     environment:
       BIKE_GATEWAY_WORKERS: "16"
+      BIKE_INSTANCE: "1"
     volumes:
       - ./server.toml:/etc/bike/server.toml:ro
+      - bike-shm-2:/dev/shm
       - server-logs-2:/var/log/bike-server
     restart: unless-stopped
 
@@ -79,3 +140,19 @@ volumes:
   mysql-data:
   server-logs-1:
   server-logs-2:
+  dispatch-logs-1:
+  dispatch-logs-2:
+  # 每实例独立 tmpfs(256MB)挂 /dev/shm: shm 环文件 + FIFO 全落内存,
+  # 容器重建即清空, 与 create_or_recover 残留恢复语义自洽。
+  bike-shm-1:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=268435456,mode=1777
+  bike-shm-2:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=268435456,mode=1777

@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 COPY . .
 RUN cmake -B build -S . -DBIKE_BUILD_TESTS=OFF -DBIKE_BUILD_CLIENT=OFF && \
-    cmake --build build -j"$(nproc)" --target bike-server
+    cmake --build build -j"$(nproc)" --target bike-gateway bike-dispatch
 
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -23,7 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /src/build/server/bike-server /app/bike-server
-RUN mkdir -p /var/log/bike-server
+# 模块三双二进制: 纯网关 + 业务 Dispatch(compose 用 command 切换)
+COPY --from=builder /src/build/server/bike-gateway  /app/bike-gateway
+COPY --from=builder /src/build/server/bike-dispatch /app/bike-dispatch
+RUN mkdir -p /var/log/bike-server /var/log/bike-dispatch
 EXPOSE 8888
-ENTRYPOINT ["/app/bike-server", "/etc/bike/server.toml"]
+ENTRYPOINT ["/app/bike-gateway", "/etc/bike/server.toml"]

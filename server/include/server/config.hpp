@@ -44,6 +44,22 @@ struct Config {
         int idle_timeout_ms{60000};
         int accept_backlog{1024};
     } uring;
+
+    // mmap IPC 环 (模块三)。mode="ring" 时 Gateway/Dispatch 双进程 + SPSC 环;
+    // mode="inprocess" 回退进程内 InProcessRouterSink 单进程模式。
+    // instance 可用 BIKE_INSTANCE 环境变量覆盖(compose 双实例隔离)。
+    struct Ipc {
+        std::string mode{"ring"};       // "ring" | "inprocess"
+        std::string shm_root{"/dev/shm"};  // FIFO 所在目录(shm 文件由 shm_open 固定落 /dev/shm)
+        std::string shm_prefix{"bike"};    // shm 文件名: {prefix}{instance}_req / _rsp(shm_open 无后缀, 固定落 /dev/shm)
+        int instance{0};
+        int open_timeout_ms{10000};     // Gateway 等待 Dispatch 建环的上限
+        int peer_timeout_ms{5000};      // 对端心跳超时(判死)
+        int spin_tries{64};             // 读方睡眠前自旋次数
+        int dispatch_workers{8};        // Dispatch 业务线程数 M
+        int req_ring_slots{512};        // v1 必须 == ReqRing::kSlotCount(编译期常量)
+        int rsp_ring_slots{256};        // v1 必须 == RspRing::kSlotCount
+    } ipc;
 };
 
 // Throws std::runtime_error on parse error.

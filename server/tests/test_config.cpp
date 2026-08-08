@@ -119,3 +119,60 @@ accept_backlog = 99999
     EXPECT_EQ(cfg.uring.accept_backlog, 65535);
     std::remove(path.c_str());
 }
+
+TEST(Config, ParsesIpcSection) {
+    auto path = write_tmp(R"toml(
+[ipc]
+mode = "ring"
+shm_root = "/dev/shm"
+shm_prefix = "bike"
+instance = 1
+open_timeout_ms = 8000
+peer_timeout_ms = 3000
+spin_tries = 128
+dispatch_workers = 4
+req_ring_slots = 512
+rsp_ring_slots = 256
+)toml");
+    auto cfg = load_config(path);
+    EXPECT_EQ(cfg.ipc.mode, "ring");
+    EXPECT_EQ(cfg.ipc.shm_root, "/dev/shm");
+    EXPECT_EQ(cfg.ipc.shm_prefix, "bike");
+    EXPECT_EQ(cfg.ipc.instance, 1);
+    EXPECT_EQ(cfg.ipc.open_timeout_ms, 8000);
+    EXPECT_EQ(cfg.ipc.peer_timeout_ms, 3000);
+    EXPECT_EQ(cfg.ipc.spin_tries, 128);
+    EXPECT_EQ(cfg.ipc.dispatch_workers, 4);
+    EXPECT_EQ(cfg.ipc.req_ring_slots, 512);
+    EXPECT_EQ(cfg.ipc.rsp_ring_slots, 256);
+    std::remove(path.c_str());
+}
+
+TEST(Config, IpcDefaultsWhenSectionMissing) {
+    auto path = write_tmp("[server]\nport = 7777\n");
+    auto cfg = load_config(path);
+    EXPECT_EQ(cfg.ipc.mode, "ring");           // 默认双进程环模式
+    EXPECT_EQ(cfg.ipc.shm_prefix, "bike");
+    EXPECT_EQ(cfg.ipc.instance, 0);
+    EXPECT_EQ(cfg.ipc.open_timeout_ms, 10000);
+    EXPECT_EQ(cfg.ipc.peer_timeout_ms, 5000);
+    EXPECT_EQ(cfg.ipc.spin_tries, 64);
+    EXPECT_EQ(cfg.ipc.dispatch_workers, 8);
+    EXPECT_EQ(cfg.ipc.req_ring_slots, 512);
+    EXPECT_EQ(cfg.ipc.rsp_ring_slots, 256);
+    std::remove(path.c_str());
+}
+
+TEST(Config, InvalidIpcValuesThrow) {
+    // mode 枚举外
+    EXPECT_THROW(load_config(write_tmp("[ipc]\nmode = \"socket\"")), std::runtime_error);
+    // 槽数与编译期常量不一致 → 启动即报错(防双进程布局错位)
+    EXPECT_THROW(load_config(write_tmp("[ipc]\nreq_ring_slots = 1024")), std::runtime_error);
+    EXPECT_THROW(load_config(write_tmp("[ipc]\nrsp_ring_slots = 128")), std::runtime_error);
+    // 参数区间
+    EXPECT_THROW(load_config(write_tmp("[ipc]\nspin_tries = -1")), std::runtime_error);
+    EXPECT_THROW(load_config(write_tmp("[ipc]\nspin_tries = 20000")), std::runtime_error);
+    EXPECT_THROW(load_config(write_tmp("[ipc]\ndispatch_workers = 0")), std::runtime_error);
+    EXPECT_THROW(load_config(write_tmp("[ipc]\npeer_timeout_ms = 50")), std::runtime_error);
+    EXPECT_THROW(load_config(write_tmp("[ipc]\ninstance = -1")), std::runtime_error);
+}

@@ -135,7 +135,6 @@ def main():
     for f, v in ((2, 39.98), (3, 116.32), (4, 5000.0)):
         payload += bytes([(f << 3) | 1]) + struct.pack('<d', v)
     rsp, dt = rpc(sock, 0x11, 0x12, payload, seq=104)
-    bikes = [v for k, v in rsp.items() if k == 2] if False else None
     # repeated bike_info 是 len-delimited, dec_fields 只留最后一个, 单独计数
     body_fields = rsp
     print(f'[smoke] nearby code={body_fields.get(1)} ({dt:.1f}ms)')

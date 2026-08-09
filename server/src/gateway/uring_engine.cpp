@@ -92,8 +92,8 @@ void UringEngine::run() {
     submit_stop_read();
     if (rsp_notify_fd_ >= 0) submit_rsp_notify_read();   // 模块三 ring 模式
     io_uring_submit(&ring_);
-    BIKE_LOG_INFO("uring engine running: sq={} cq={} workers={}",
-                  opt_.sq_depth, opt_.cq_depth, opt_.workers);
+    BIKE_LOG_INFO("uring engine running: sq={} cq={} workers={} listen_fd={}",
+                  opt_.sq_depth, opt_.cq_depth, opt_.workers, listen_fd_);
 
     for (;;) {
         struct io_uring_cqe* cqe = nullptr;
@@ -536,10 +536,14 @@ struct io_uring_sqe* UringEngine::get_sqe() {
 
 void UringEngine::submit_accept() {
     auto* sqe = get_sqe();
-    if (sqe == nullptr) return;   // 停机/耗尽: 下轮超时唤醒再重挂
+    if (sqe == nullptr) {
+        BIKE_LOG_WARN("submit_accept skipped: SQ exhausted, re-arm next tick");
+        return;   // 停机/耗尽: 下轮超时唤醒再重挂
+    }
     auto* op = new UringOp{};
     op->kind = OpKind::Accept;
-    io_uring_prep_accept(sqe, listen_fd_, 0, 0);
+    // 5 参签名(liburing >=2.0 通用): 4 参便捷形式是 2.3+ 才有, Ubuntu 22.04 编不过
+    io_uring_prep_accept(sqe, listen_fd_, nullptr, nullptr, 0);
     sqe->user_data = reinterpret_cast<std::uint64_t>(op);
 }
 

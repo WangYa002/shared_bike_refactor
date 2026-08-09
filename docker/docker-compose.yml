@@ -30,6 +30,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-dispatch-1
+    # 镜像 ENTRYPOINT 是 bike-gateway, 必须清空后 command 才是完整命令行
+    entrypoint: []
     command: ["/app/bike-dispatch", "/etc/bike/server.toml"]
     depends_on:
       mysql:
@@ -60,6 +62,9 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-server-1
+    # io_uring 系列 syscall 被 Docker 默认 seccomp 拦截(EPERM), 需放开
+    security_opt:
+      - seccomp:unconfined
     depends_on:
       bike-dispatch-1:
         condition: service_healthy
@@ -81,6 +86,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-dispatch-2
+    # 镜像 ENTRYPOINT 是 bike-gateway, 必须清空后 command 才是完整命令行
+    entrypoint: []
     command: ["/app/bike-dispatch", "/etc/bike/server.toml"]
     depends_on:
       mysql:
@@ -110,6 +117,9 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-server-2
+    # io_uring 系列 syscall 被 Docker 默认 seccomp 拦截(EPERM), 需放开
+    security_opt:
+      - seccomp:unconfined
     depends_on:
       bike-dispatch-2:
         condition: service_healthy

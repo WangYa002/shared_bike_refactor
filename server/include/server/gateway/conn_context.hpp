@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -27,7 +28,9 @@ class Connection {
 public:
     Connection(int fd, std::uint64_t conn_id, std::size_t rx_buf_bytes)
         : fd_(fd), conn_id_(conn_id) {
-        pending_.reserve(rx_buf_bytes);
+        // 一次性把存储拉满到 size==capacity: 后续只用 rx_len_ 记账有效字节,
+        // 绝不用 resize 增长(size 增长会 value-init 覆写内核 recv 已写入的数据)。
+        pending_.resize(rx_buf_bytes);
     }
 
     // 兜底防 fd 泄漏: 正常路径 maybe_finalize 已 close 并置 -1(不会双关);
@@ -46,30 +49,39 @@ public:
     std::uint64_t conn_id() const noexcept { return conn_id_; }
 
     // ---- rx 累积区(主线程独占) ----
+    // 存储不变式: pending_.size() == capacity(全量预分配), rx_len_ 记录有效字节。
+    // recv 写入 [data+rx_len_, size) 区间; commit 只动 rx_len_ 不碰存储,
+    // 避免 resize 增长路径 value-init 覆写内核刚写入的字节(历史 bug)。
 
     // 确保尾部有 ≥ spare 字节空闲, 供 recv SQE 直接写入。
     // 必须在取 rx_writable() 之前调用(扩容可能移动存储)。
     void rx_prepare(std::size_t spare) {
-        if (pending_.capacity() - pending_.size() < spare)
-            pending_.reserve(pending_.size() + spare);
+        if (pending_.size() < rx_len_ + spare)
+            pending_.resize(rx_len_ + spare);   // 只增长空闲区, 覆零无影响
     }
     std::span<std::uint8_t> rx_writable() {
-        return {pending_.data() + pending_.size(),
-                pending_.capacity() - pending_.size()};
+        return {pending_.data() + rx_len_, pending_.size() - rx_len_};
     }
-    // RECV cqe(res>0) 后登记写入字节数
-    void rx_commit(std::size_t n) { pending_.resize(pending_.size() + n); }
-    std::size_t rx_size() const noexcept { return pending_.size(); }
-    // 移交: 零拷贝 swap 出全部累积字节给 worker, 累积区重置并重新 reserve
+    // RECV cqe(res>0) 后登记写入字节数(内核已写入存储, 不得重建元素)
+    void rx_commit(std::size_t n) { rx_len_ += n; }
+    std::size_t rx_size() const noexcept { return rx_len_; }
+    // 移交: swap 出存储后缩小 size 到有效长度(缩小不覆写保留字节),
+    // 累积区重新拉满等待下轮。
     std::vector<std::uint8_t> rx_take(std::size_t reserve_cap) {
         std::vector<std::uint8_t> out;
         out.swap(pending_);
-        pending_.reserve(reserve_cap);
+        out.resize(rx_len_);
+        rx_len_ = 0;
+        if (pending_.size() < reserve_cap)
+            pending_.resize(reserve_cap);
         return out;
     }
     // RearmRecv 时回填 worker 交还的半包尾巴
     void rx_feed(std::vector<std::uint8_t> leftover) {
-        pending_.insert(pending_.end(), leftover.begin(), leftover.end());
+        if (rx_len_ + leftover.size() > pending_.size())
+            pending_.resize(rx_len_ + leftover.size());
+        std::copy(leftover.begin(), leftover.end(), pending_.begin() + rx_len_);
+        rx_len_ += leftover.size();
     }
 
     // ---- send 队列(主线程独占) ----
@@ -110,7 +122,8 @@ public:
 private:
     int fd_{-1};
     std::uint64_t conn_id_{0};
-    std::vector<std::uint8_t> pending_;              // rx 累积区
+    std::vector<std::uint8_t> pending_;   // 存储区(size==capacity 全量预分配)
+    std::size_t rx_len_{0};               // pending_ 前 rx_len_ 字节为有效数据
     std::deque<std::vector<std::uint8_t>> send_q_;   // 发送队列
     std::size_t send_bytes_{0};
     bool send_active_{false};

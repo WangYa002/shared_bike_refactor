@@ -1,11 +1,15 @@
 // 切帧纯逻辑测试: 粘包/半包/坏帧/leftover 闭环 (跨平台, 无系统调用)。
+// 含 Connection rx 累积区回归测试(rx_commit 覆零 bug, 部署冒烟全零帧)。
 
+#include "server/gateway/conn_context.hpp"
 #include "server/gateway/frame_cut.hpp"
 
 #include <bike/protocol.hpp>
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <iterator>
 #include <string>
@@ -140,4 +144,110 @@ TEST(FrameCut, OversizeLenFlagsBad) {
     std::vector<bike::Frame> frames;
     auto r = cut_frames(buf.data(), buf.size(), frames);
     EXPECT_TRUE(r.bad);
+}
+
+// ============================================================================
+// Connection rx 累积区回归测试 (任务 #33)
+//
+// 历史 bug: rx_commit 路径曾用 std::vector::resize 增长接收缓冲, resize 的
+// value-init 会把内核 recv 已写入 capacity 区(data()+old_size 起)的字节覆零,
+// 部署冒烟时收到全零帧。修复: 构造时一次性预分配全量存储(size==capacity),
+// rx_commit 只用 rx_len_ 记账有效长度, 绝不重建元素。
+// ============================================================================
+
+// 用例一(核心回归): 模拟内核 recv 已写入数据——先向 rx 写入区写入可辨识模式,
+// rx_commit 后断言字节与写入模式完全一致、未被覆零; 跨两次提交验证累积完整。
+TEST(ConnRxCommit, KernelWrittenBytesSurviveCommitAcrossMultipleRecv) {
+    constexpr std::size_t kCap = 64;
+    Connection conn(/*fd=*/-1, /*conn_id=*/1, kCap);
+    ASSERT_EQ(conn.rx_size(), 0u);
+
+    // 第一次 recv: 取写入区并写入 8 字节 0xA5 模式(模拟内核写入 capacity 区)
+    auto w1 = conn.rx_writable();
+    ASSERT_EQ(w1.size(), kCap);
+    std::fill_n(w1.data(), 8, std::uint8_t{0xA5});
+    conn.rx_commit(8);
+    EXPECT_EQ(conn.rx_size(), 8u);
+    // commit 只动记账, 不得触碰存储: 刚写入的模式必须原样存活
+    // (旧 resize 实现会在此处把 0xA5 覆零)
+    EXPECT_EQ(std::count(w1.data(), w1.data() + 8, std::uint8_t{0xA5}), 8);
+
+    // 第二次 recv: 写入区推进到有效长度之后, 写 12 字节递增序列
+    auto w2 = conn.rx_writable();
+    ASSERT_EQ(w2.size(), kCap - 8);
+    ASSERT_EQ(w2.data(), w1.data() + 8);   // 累积: 紧随第一段之后
+    for (std::size_t i = 0; i < 12; ++i)
+        w2[i] = static_cast<std::uint8_t>(0x10 + i);
+    conn.rx_commit(12);
+    EXPECT_EQ(conn.rx_size(), 20u);
+
+    // rx_take 读出累积数据: 两段模式全部完整, 无一字节被覆零
+    auto data = conn.rx_take(kCap);
+    ASSERT_EQ(data.size(), 20u);
+    for (std::size_t i = 0; i < 8; ++i)
+        EXPECT_EQ(data[i], 0xA5u) << "第一段第 " << i << " 字节被改写";
+    for (std::size_t i = 0; i < 12; ++i)
+        EXPECT_EQ(data[8 + i], 0x10u + i) << "第二段第 " << i << " 字节被改写";
+    // 移交后累积区重置
+    EXPECT_EQ(conn.rx_size(), 0u);
+}
+
+// 用例二(边界): commit(0) 不改变有效长度与写入区。
+TEST(ConnRxCommit, CommitZeroIsNoOp) {
+    constexpr std::size_t kCap = 16;
+    Connection conn(-1, 2, kCap);
+
+    conn.rx_commit(0);
+    EXPECT_EQ(conn.rx_size(), 0u);
+    EXPECT_EQ(conn.rx_writable().size(), kCap);
+
+    // 已有有效数据后再 commit(0) 同样不变
+    std::fill_n(conn.rx_writable().data(), 4, std::uint8_t{0x7E});
+    conn.rx_commit(4);
+    conn.rx_commit(0);
+    EXPECT_EQ(conn.rx_size(), 4u);
+    EXPECT_EQ(conn.rx_writable().size(), kCap - 4);
+}
+
+// 用例二(边界): commit 恰好到满容量边界——写满、提交、写区归零,
+// 随后 rx_prepare 重新腾出空闲区供下一轮 recv。
+TEST(ConnRxCommit, CommitToFullCapacityBoundary) {
+    constexpr std::size_t kCap = 16;
+    Connection conn(-1, 3, kCap);
+
+    auto w = conn.rx_writable();
+    for (std::size_t i = 0; i < kCap; ++i)
+        w[i] = static_cast<std::uint8_t>(0xC0 + i);
+    conn.rx_commit(kCap);
+    EXPECT_EQ(conn.rx_size(), kCap);
+    EXPECT_EQ(conn.rx_writable().size(), 0u);   // 满: 无空闲可写
+
+    // rx_prepare 增长空闲区(只扩空闲尾部, 不碰已有数据)
+    conn.rx_prepare(8);
+    ASSERT_GE(conn.rx_writable().size(), 8u);
+    conn.rx_commit(8);
+    EXPECT_EQ(conn.rx_size(), kCap + 8);
+
+    // 全量校验: 前 kCap 字节仍是原模式
+    auto data = conn.rx_take(kCap);
+    ASSERT_EQ(data.size(), kCap + 8);
+    for (std::size_t i = 0; i < kCap; ++i)
+        EXPECT_EQ(data[i], 0xC0u + i) << "满容量边界第 " << i << " 字节被改写";
+}
+
+// 用例二(边界): 超过 capacity 的 commit——代码契约由调用方保证
+// n <= 空闲字节(rx_commit 无 assert/截断, 仅 rx_len_ += n 纯记账)。
+// 此处断言该契约行为: 记账按算术叠加, 且存储区既有字节不受影响。
+TEST(ConnRxCommit, CommitBeyondCapacityIsPureBookkeepingPerContract) {
+    constexpr std::size_t kCap = 8;
+    Connection conn(-1, 4, kCap);
+
+    auto w = conn.rx_writable();
+    std::fill_n(w.data(), kCap, std::uint8_t{0x5A});
+    conn.rx_commit(kCap);
+    conn.rx_commit(4);   // 超出 capacity: 调用方违约场景
+    EXPECT_EQ(conn.rx_size(), kCap + 4);   // 纯记账, 无 clamp
+    // commit 从不触碰存储: 已写入的模式仍完整存活
+    EXPECT_EQ(std::count(w.data(), w.data() + kCap, std::uint8_t{0x5A}),
+              static_cast<int>(kCap));
 }

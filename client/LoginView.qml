@@ -71,7 +71,10 @@ Item {
                     font.weight: Font.DemiBold
                     color: Theme.amber
                     opacity: 0
-                    NumberAnimation on opacity { to: 1; duration: 500; delay: 150 }
+                    SequentialAnimation on opacity {
+                        PauseAnimation { duration: 150 }
+                        NumberAnimation { to: 1; duration: 500 }
+                    }
                 }
                 Item { Layout.preferredHeight: 18 }
                 Text {
@@ -80,7 +83,10 @@ Item {
                     font.pixelSize: 13
                     color: Theme.muted
                     opacity: 0
-                    NumberAnimation on opacity { to: 1; duration: 500; delay: 300 }
+                    SequentialAnimation on opacity {
+                        PauseAnimation { duration: 300 }
+                        NumberAnimation { to: 1; duration: 500 }
+                    }
                 }
             }
 
@@ -253,13 +259,15 @@ Item {
 
     // 入场: 表单淡入 (表单由 anchors 定位, 不动画 y 避免锚点冲突)
     Component.onCompleted: reveal.start()
-    NumberAnimation {
+    SequentialAnimation {
         id: reveal
-        target: form
-        property: "opacity"
-        from: 0; to: 1
-        duration: 420
-        delay: 120
-        easing.type: Easing.OutCubic
+        PauseAnimation { duration: 120 }
+        NumberAnimation {
+            target: form
+            property: "opacity"
+            from: 0; to: 1
+            duration: 420
+            easing.type: Easing.OutCubic
+        }
     }
 }

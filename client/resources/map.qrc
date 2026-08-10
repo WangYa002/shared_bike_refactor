@@ -3,5 +3,8 @@
         <file>map.html</file>
         <file>map.js</file>
         <file>map.css</file>
+        <!-- Qt Quick Controls 样式配置(资源根 :/qtquickcontrols2.conf):
+             强制 Basic 风格, 使 BikeButton/Field 的自定义在 Windows 生效 -->
+        <file alias="qtquickcontrols2.conf">../qtquickcontrols2.conf</file>
     </qresource>
 </RCC>

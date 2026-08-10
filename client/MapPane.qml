@@ -35,8 +35,11 @@ Item {
         url: "qrc:/map.html"
         webChannel: channel
 
-        onLoadFinished: function(ok) {
-            if (!ok) { pane.setStatus("地图加载失败"); return }
+        onLoadingChanged: function(loadRequest) {
+            if (loadRequest.status === WebEngineView.LoadFailedStatus) {
+                pane.setStatus("地图加载失败"); return
+            }
+            if (loadRequest.status !== WebEngineView.LoadSucceededStatus) return
             if (pane.mapReady) return
             pane.mapReady = true
             // 与旧 MapView::onLoadFinished 一致: 默认坐标打点 + 首次拉车 + 真实定位
@@ -85,6 +88,15 @@ Item {
                 font.family: Theme.zhFont
                 font.pixelSize: 12
                 color: Theme.red
+            }
+
+            // 定位状态提示(常驻订阅流的 status 属性)
+            Text {
+                text: "📍" + location.status
+                font.family: Theme.zhFont
+                font.pixelSize: 12
+                color: location.status === "已定位" ? Theme.green
+                     : location.status === "定位中" ? Theme.amber : Theme.muted
             }
 
             Item { Layout.fillWidth: true }
@@ -190,6 +202,7 @@ Item {
             pane.myLng = lng
             pane.callJs("setUserLocation(" + lat + ", " + lng + ");")
         }
+        function onLocationError(message) { pane.setStatus("定位提示: " + message) }
     }
 
     Component.onCompleted: {

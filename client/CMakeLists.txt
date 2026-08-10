@@ -48,26 +48,29 @@ if(Qt6Quick_FOUND AND Qt6QuickControls2_FOUND AND Qt6WebEngineQuick_FOUND
         resources/map.qrc
     )
 
-    # Theme.qml 是 pragma Singleton
-    set_source_files_properties(qml/Theme.qml PROPERTIES
+    # Theme.qml 是 pragma Singleton。
+    # 注意: QML 文件必须与生成的 qmldir 同目录(client/ 根, 即模块基目录);
+    # 若放入子目录(如 qml/), 同目录隐式导入看不到 qmldir 的 singleton 条目,
+    # Theme 会被当作普通组件实例化导致属性全空 (Qt 官方确认的已知行为)。
+    set_source_files_properties(Theme.qml PROPERTIES
         QT_QML_SINGLETON_TYPE TRUE)
 
     qt_add_qml_module(bike_client
         URI Bike
         VERSION 1.0
         QML_FILES
-            qml/Main.qml
-            qml/LoginView.qml
-            qml/MainScreen.qml
-            qml/MapPane.qml
-            qml/RidePane.qml
-            qml/WalletPane.qml
-            qml/RecordsPane.qml
-            qml/HistoryPane.qml
-            qml/RideDetail.qml
-            qml/Theme.qml
-            qml/BikeButton.qml
-            qml/Field.qml
+            Main.qml
+            LoginView.qml
+            MainScreen.qml
+            MapPane.qml
+            RidePane.qml
+            WalletPane.qml
+            RecordsPane.qml
+            HistoryPane.qml
+            RideDetail.qml
+            Theme.qml
+            BikeButton.qml
+            Field.qml
     )
 
     target_link_libraries(bike_client PRIVATE

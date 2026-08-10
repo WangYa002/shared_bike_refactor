@@ -96,8 +96,11 @@ Dialog {
             Layout.fillHeight: true
             webChannel: dchannel
 
-            onLoadFinished: function(ok) {
-                if (!ok) { metaLabel.text = "地图加载失败"; return }
+            onLoadingChanged: function(loadRequest) {
+                if (loadRequest.status === WebEngineView.LoadFailedStatus) {
+                    metaLabel.text = "地图加载失败"; return
+                }
+                if (loadRequest.status !== WebEngineView.LoadSucceededStatus) return
                 dlg.mapLoaded = true
                 dlg.tryDraw()
             }

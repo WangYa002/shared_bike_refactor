@@ -24,6 +24,11 @@ function setUserLocation(lat, lng) {
     userMarker = L.marker([lat, lng], {
         icon: L.divIcon({className: 'user-icon', iconSize: [16, 16]})
     }).addTo(map);
+    // 越界才平移: 常驻定位每 2-3 秒推送一次, 无条件 panTo 会打断
+    // 用户手动拖图; 定位在视口内时保持用户当前视角。
+    if (!map.getBounds().contains([lat, lng])) {
+        map.panTo([lat, lng], {animate: true});
+    }
 }
 
 function renderBikes(bikes) {
@@ -44,8 +49,22 @@ function renderBikes(bikes) {
         });
         bikeMarkers[b.bike_no] = m;
     });
-    if (window.bridge && window.bridge.bikeCountsUpdated) {
-        window.bridge.bikeCountsUpdated(idleCount, damagedCount);
+    // 兜底: 若绘制完成后视口内没有任何车辆标记(如定位远离初始视角),
+    // 适配到 车辆点集 ∪ 用户位置, 避免用户看到空地图。空集时不动视角。
+    var bounds = L.latLngBounds();
+    bikes.forEach(function(b) { bounds.extend([b.lat, b.lng]); });
+    if (userMarker) bounds.extend(userMarker.getLatLng());
+    if (bounds.isValid()) {
+        var vb = map.getBounds();
+        var anyVisible = false;
+        for (var no in bikeMarkers) {
+            if (vb.contains(bikeMarkers[no].getLatLng())) { anyVisible = true; break; }
+        }
+        if (!anyVisible) map.fitBounds(bounds, {padding: [40, 40]});
+    }
+    // 经 slot 通知 C++(信号在 WebChannel JS 侧只能 connect 不能调用)
+    if (window.bridge && window.bridge.onBikeCountsUpdated) {
+        window.bridge.onBikeCountsUpdated(idleCount, damagedCount);
     }
 }
 

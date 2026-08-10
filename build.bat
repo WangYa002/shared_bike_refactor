@@ -15,7 +15,7 @@ if errorlevel 1 exit /b 1
   -j
 
 REM Bundle Qt + protobuf runtime DLLs next to the exe (one-time after rebuild)
-REM --qmldir 扫描 client\qml 以部署 QML 模块依赖(Bike/Quick/WebEngine 等)
+REM --qmldir 扫描 client 目录以部署 QML 模块依赖(Bike/Quick/WebEngine 等)
 if exist "%~dp0build\client\bike_client.exe" (
-  "C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" --qmldir "%~dp0client\qml" "%~dp0build\client\bike_client.exe"
+  "C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe" --qmldir "%~dp0client" "%~dp0build\client\bike_client.exe"
 )

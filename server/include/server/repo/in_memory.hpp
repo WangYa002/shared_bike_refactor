@@ -174,9 +174,18 @@ public:
         std::lock_guard<std::mutex> lk(mu_);
         bikes_[b.bike_no] = b;
     }
+    std::optional<Bike> insert(const Bike& b) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (bikes_.count(b.bike_no)) return std::nullopt;  // 与 UNIQUE 约束同语义
+        Bike nb = b;
+        nb.id = next_id_++;
+        bikes_[nb.bike_no] = nb;
+        return nb;
+    }
 private:
     std::mutex mu_;
     std::map<std::string, Bike> bikes_;
+    int next_id_{1000000};   // 高位起步, 避免与 seed 数据的小 id 冲突
 };
 
 class InMemoryRideRepo : public IRideRepo {

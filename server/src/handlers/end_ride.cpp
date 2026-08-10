@@ -7,6 +7,7 @@
 
 #include <bike.pb.h>
 
+#include <algorithm>
 #include <chrono>
 #include <utility>
 #include <vector>
@@ -58,19 +59,31 @@ std::vector<std::uint8_t> end_ride(const std::string& payload, Ctx& ctx) {
     int duration_sec = static_cast<int>(end_ts - sess->start_ts);
     if (duration_sec < 0) duration_sec = 0;
     int amount = compute_fee(duration_sec);
-    double dist_m = haversine_m(sess->start_lat, sess->start_lng,
-                                 req.end_lat(), req.end_lng());
+
+    // 完整轨迹: 起点(seq=0) + 会话累积上报点 + 终点。
+    // 会话无上报点时自然退化为{起点,终点}两点(与旧行为一致)。
+    std::vector<RidePoint> points;
+    points.reserve(sess->points.size() + 2);
+    points.push_back({.seq = 0, .lat = sess->start_lat, .lng = sess->start_lng,
+                      .elapsed_sec = 0});
+    for (const auto& p : sess->points) points.push_back(p);
+    points.push_back({.seq = sess->last_seq + 1, .lat = req.end_lat(),
+                      .lng = req.end_lng(), .elapsed_sec = duration_sec});
+    // 按耗时排序,保证落库与回放按时间顺序(乱序包不会破坏轨迹)。
+    std::sort(points.begin(), points.end(),
+              [](const RidePoint& a, const RidePoint& b) {
+                  return a.elapsed_sec < b.elapsed_sec;
+              });
+    // 里程: 沿轨迹逐段 haversine 累加(旧实现是起终点直线距离)。
+    double dist_m = 0;
+    for (std::size_t i = 1; i < points.size(); ++i)
+        dist_m += haversine_m(points[i - 1].lat, points[i - 1].lng,
+                              points[i].lat, points[i].lng);
 
     int new_bal = ctx.accounts->add_balance(*uid, RecordType::Consume, -amount);
     if (new_bal < 0) {
         return fail(ErrCode::ProcessFailed, "余额不足");
     }
-
-    std::vector<RidePoint> points = {
-        {.seq = 0, .lat = sess->start_lat, .lng = sess->start_lng, .elapsed_sec = 0},
-        {.seq = sess->last_seq, .lat = req.end_lat(), .lng = req.end_lng(),
-         .elapsed_sec = duration_sec},
-    };
 
     CreateRideInput in{
         .ride_no = sess->ride_no, .user_id = *uid, .bike_id = sess->bike_id,

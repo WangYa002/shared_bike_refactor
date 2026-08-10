@@ -28,6 +28,9 @@ public:
     // bounding box 查询
     virtual std::vector<Bike> list_in_bounds(double lat_min, double lat_max,
                                              double lng_min, double lng_max) = 0;
+    // 新增车辆(动态投放用)。成功返回入库后的行(含自增 id);
+    // bike_no 冲突(UNIQUE 约束)返回 nullopt,调用方换号重试。
+    virtual std::optional<Bike> insert(const Bike& b) = 0;
 };
 
 } // namespace bike::server

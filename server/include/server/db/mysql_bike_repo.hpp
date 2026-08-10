@@ -15,6 +15,7 @@ public:
     bool update_location(int bike_id, double lat, double lng) override;
     std::vector<Bike> list_in_bounds(double lat_min, double lat_max,
                                      double lng_min, double lng_max) override;
+    std::optional<Bike> insert(const Bike& b) override;
 private:
     std::shared_ptr<MysqlPool> pool_;
 };

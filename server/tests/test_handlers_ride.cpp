@@ -8,6 +8,10 @@
 #include <gtest/gtest.h>
 
 #include <ctime>
+#include <set>
+#include <string>
+
+#include "bike/geo.hpp"
 
 using namespace bike;
 using namespace bike::server;
@@ -48,9 +52,13 @@ tutorial::list_nearby_bikes_response parse_nearby(const std::vector<std::uint8_t
 
 TEST(ListNearbyBikes, ReturnsIdleAndDamagedInRadius) {
     Fixture f;
+    // 种 5 辆(达投放阈值), 验证"不投放且 idle/damaged 都返回"的纯查询路径
     f.bikes->seed({.id = 1, .bike_no = "BJ-001", .lat = 39.982, .lng = 116.314, .status = BikeStatus::Idle});
     f.bikes->seed({.id = 2, .bike_no = "BJ-002", .lat = 39.983, .lng = 116.315, .status = BikeStatus::Damaged});
     f.bikes->seed({.id = 3, .bike_no = "BJ-003", .lat = 40.000, .lng = 116.500, .status = BikeStatus::Idle});
+    f.bikes->seed({.id = 4, .bike_no = "BJ-004", .lat = 39.9825, .lng = 116.3145, .status = BikeStatus::Idle});
+    f.bikes->seed({.id = 5, .bike_no = "BJ-005", .lat = 39.9818, .lng = 116.3138, .status = BikeStatus::Damaged});
+    f.bikes->seed({.id = 6, .bike_no = "BJ-006", .lat = 39.9822, .lng = 116.3142, .status = BikeStatus::Idle});
 
     tutorial::list_nearby_bikes_request req;
     req.set_session_token(f.token);
@@ -61,7 +69,55 @@ TEST(ListNearbyBikes, ReturnsIdleAndDamagedInRadius) {
     auto bytes = handlers::list_nearby_bikes(req.SerializeAsString(), f.ctx);
     auto rsp = parse_nearby(bytes);
     EXPECT_EQ(rsp.code(), 200);
-    EXPECT_EQ(rsp.bikes_size(), 2);
+    EXPECT_EQ(rsp.bikes_size(), 5);
+    // 充足区域不投放: 无 DY- 动态车。
+    for (const auto& b : rsp.bikes())
+        EXPECT_NE(b.bike_no().substr(0, 3), "DY-");
+}
+
+// 稀疏区域(0 辆)触发动态投放, 补足到目标数量, 全部 idle 且在半径内。
+TEST(ListNearbyBikes, SpawnsDynamicBikesWhenSparse) {
+    Fixture f;
+    tutorial::list_nearby_bikes_request req;
+    req.set_session_token(f.token);
+    req.set_lat(31.2304);   // 无任何种子车的区域
+    req.set_lng(121.4737);
+    req.set_radius_m(500);
+
+    auto rsp = parse_nearby(handlers::list_nearby_bikes(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 200);
+    ASSERT_GE(rsp.bikes_size(), 10);   // 补到约 12 辆
+    std::set<std::string> nos;
+    for (const auto& b : rsp.bikes()) {
+        EXPECT_EQ(b.status(), 0);                          // 投放车全部 idle
+        EXPECT_EQ(b.bike_no().substr(0, 3), "DY-");        // 动态车号前缀
+        EXPECT_LE(haversine_m(31.2304, 121.4737, b.lat(), b.lng()), 500.0);
+        nos.insert(b.bike_no());
+    }
+    EXPECT_EQ(nos.size(), static_cast<size_t>(rsp.bikes_size()));  // 车号无重复
+}
+
+// 车号唯一性: 两个不同稀疏区域先后投放, 车号全局不重复;
+// 且投放达标后同区域再请求不再增车(防抖收敛)。
+TEST(ListNearbyBikes, SpawnedBikeNosUniqueAndNoOverSpawn) {
+    Fixture f;
+    auto query = [&](double lat, double lng) {
+        tutorial::list_nearby_bikes_request req;
+        req.set_session_token(f.token);
+        req.set_lat(lat); req.set_lng(lng); req.set_radius_m(500);
+        return parse_nearby(handlers::list_nearby_bikes(req.SerializeAsString(), f.ctx));
+    };
+    auto rsp1 = query(31.2304, 121.4737);
+    auto rsp2 = query(23.1291, 113.2644);
+    std::set<std::string> nos;
+    for (const auto& b : rsp1.bikes()) nos.insert(b.bike_no());
+    for (const auto& b : rsp2.bikes()) nos.insert(b.bike_no());
+    EXPECT_EQ(nos.size(),
+              static_cast<size_t>(rsp1.bikes_size() + rsp2.bikes_size()));
+
+    // 防抖: 首次投放后区域达标, 再次请求数量不变(不再增车)。
+    auto rsp3 = query(31.2304, 121.4737);
+    EXPECT_EQ(rsp3.bikes_size(), rsp1.bikes_size());
 }
 
 TEST(ListNearbyBikes, UnauthorizedIfBadToken) {
@@ -167,6 +223,11 @@ TEST(PositionReport, UpdatesSessionPos) {
     auto s = f.ride_sessions->find("R1");
     EXPECT_DOUBLE_EQ(s->last_lat, 39.985);
     EXPECT_EQ(s->last_seq, 5);
+    // 上报点应同时累积进轨迹(含 elapsed_sec)。
+    ASSERT_EQ(s->points.size(), 1u);
+    EXPECT_EQ(s->points[0].seq, 5);
+    EXPECT_DOUBLE_EQ(s->points[0].lat, 39.985);
+    EXPECT_EQ(s->points[0].elapsed_sec, 5);
 }
 
 TEST(PositionReport, UnknownRideIsSilent) {
@@ -215,6 +276,51 @@ TEST(EndRide, SuccessPathChargesAndArchives) {
     auto ride = f.rides->find_by_no("R1");
     ASSERT_TRUE(ride.has_value());
     EXPECT_EQ(ride->amount_cent, rsp.amount_cent());
+    // 无上报点时回退两点行为: 起点 + 终点。
+    auto pts = f.rides->list_points(ride->id);
+    ASSERT_EQ(pts.size(), 2u);
+    EXPECT_DOUBLE_EQ(pts.front().lat, 39.982);
+    EXPECT_DOUBLE_EQ(pts.back().lat, 39.985);
+}
+
+// 骑行期间上报的轨迹点应全部落库(起点+上报点+终点),
+// 且里程为沿轨迹逐段累加(明显大于起终点直线距离)。
+TEST(EndRide, PersistsAccumulatedTrajectoryAndSegmentedDistance) {
+    Fixture f;
+    f.bikes->seed({.id = 1, .bike_no = "BJ-001", .lat = 39.982, .lng = 116.314, .status = BikeStatus::Rented});
+    f.accounts->add_balance(1, RecordType::Recharge, 1000);
+    long long past = static_cast<long long>(std::time(nullptr)) - 60;
+    f.ride_sessions->create({
+        .ride_no = "R1", .user_id = 1, .bike_id = 1,
+        .start_lat = 39.982, .start_lng = 116.314,
+        .start_ts = past,
+    });
+    // 骑行中上报 5 个点, 中间明显向北绕行(直线距离仅约 340m)。
+    const double lats[5] = {39.986, 39.990, 39.986, 39.983, 39.982};
+    const double lngs[5] = {116.315, 116.316, 116.317, 116.318, 116.317};
+    for (int i = 1; i <= 5; ++i)
+        f.ride_sessions->update_pos("R1", lats[i - 1], lngs[i - 1], i, i * 10);
+
+    tutorial::end_ride_request req;
+    req.set_session_token(f.token); req.set_ride_no("R1");
+    req.set_end_lat(39.982); req.set_end_lng(116.318);
+    auto rsp = parse_end(handlers::end_ride(req.SerializeAsString(), f.ctx));
+    EXPECT_EQ(rsp.code(), 200);
+
+    auto ride = f.rides->find_by_no("R1");
+    ASSERT_TRUE(ride.has_value());
+    auto pts = f.rides->list_points(ride->id);
+    ASSERT_EQ(pts.size(), 7u);  // 起点 + 5 上报点 + 终点
+    EXPECT_DOUBLE_EQ(pts.front().lat, 39.982);          // 起点
+    EXPECT_EQ(pts.front().elapsed_sec, 0);
+    EXPECT_DOUBLE_EQ(pts.back().lat, 39.982);           // 终点
+    EXPECT_DOUBLE_EQ(pts.back().lng, 116.318);
+    // 按 elapsed_sec 排序(回放时间轴有序)。
+    for (size_t i = 1; i < pts.size(); ++i)
+        EXPECT_GE(pts[i].elapsed_sec, pts[i - 1].elapsed_sec);
+    // 逐段里程明显大于起终点直线距离(约 340m), 验证非直线算法。
+    EXPECT_GT(ride->distance_m, 1000);
+    EXPECT_EQ(rsp.distance_m(), ride->distance_m);
 }
 
 TEST(EndRide, IdempotentReturnsHistoryWithoutDoubleCharge) {

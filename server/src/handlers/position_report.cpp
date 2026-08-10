@@ -9,7 +9,8 @@ namespace bike::server::handlers {
 std::vector<std::uint8_t> position_report(const std::string& payload, Ctx& ctx) {
     tutorial::ride_position_report req;
     if (!req.ParseFromArray(payload.data(), payload.size())) return {};
-    ctx.ride_sessions->update_pos(req.ride_no(), req.lat(), req.lng(), req.seq());
+    ctx.ride_sessions->update_pos(req.ride_no(), req.lat(), req.lng(), req.seq(),
+                                  req.elapsed_sec());
     return {};
 }
 

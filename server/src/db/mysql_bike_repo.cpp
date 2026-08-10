@@ -96,4 +96,24 @@ std::vector<Bike> MysqlBikeRepo::list_in_bounds(double la_min, double la_max,
     return out;
 }
 
+std::optional<Bike> MysqlBikeRepo::insert(const Bike& b) {
+    auto lease = pool_->acquire();
+    char esc[80];
+    unsigned long n = mysql_real_escape_string(lease.get(), esc,
+        b.bike_no.data(), static_cast<unsigned long>(b.bike_no.size()));
+    char sql[256];
+    std::snprintf(sql, sizeof(sql),
+        "INSERT INTO bike (bike_no, lat, lng, status) VALUES ('%.*s', %.7f, %.7f, %d)",
+        static_cast<int>(n), esc, b.lat, b.lng, static_cast<int>(b.status));
+    if (mysql_real_query(lease.get(), sql, static_cast<unsigned long>(std::strlen(sql))) != 0) {
+        // bike_no UNIQUE 冲突(并发投放同号)或其它错误 → 返回 nullopt,
+        // 调用方换新号重试;冲突属预期内,不作为致命错误。
+        BIKE_LOG_WARN("mysql bike insert failed: {}", mysql_error(lease.get()));
+        return std::nullopt;
+    }
+    Bike out = b;
+    out.id = static_cast<int>(mysql_insert_id(lease.get()));
+    return out;
+}
+
 } // namespace bike::server

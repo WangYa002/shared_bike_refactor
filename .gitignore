@@ -37,6 +37,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Deploy sync archives
+bike_sync*.tgz
+
 # Python
 __pycache__/
 *.pyc

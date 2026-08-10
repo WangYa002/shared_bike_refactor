@@ -35,12 +35,22 @@ if(MSVC)
 endif()
 
 # ---- QML 应用 (QML + TcpWorker/ApiBridge 信号槽架构) ----
-# 依赖 Quick/WebEngineQuick 等; 缺模块时优雅降级为"只构建 core + 测试"。
-find_package(Qt6 6.5 QUIET COMPONENTS
-    Quick QuickControls2 WebEngineQuick WebChannel Positioning)
+# 桌面: 依赖 Quick/WebEngineQuick 等; Android (任务 #55): Qt WebEngine 不支持
+# Android, 地图降级为 QtWebView 静态路径, 模块集改用 WebView (无需 WebChannel);
+# 缺模块时优雅降级为"只构建 core + 测试"。
+if(ANDROID)
+    find_package(Qt6 6.5 QUIET COMPONENTS Quick QuickControls2 WebView Positioning)
+    set(_bike_app_modules_ok ${Qt6Quick_FOUND} AND ${Qt6QuickControls2_FOUND}
+        AND ${Qt6WebView_FOUND} AND ${Qt6Positioning_FOUND})
+else()
+    find_package(Qt6 6.5 QUIET COMPONENTS
+        Quick QuickControls2 WebEngineQuick WebChannel Positioning)
+    set(_bike_app_modules_ok ${Qt6Quick_FOUND} AND ${Qt6QuickControls2_FOUND}
+        AND ${Qt6WebEngineQuick_FOUND} AND ${Qt6WebChannel_FOUND}
+        AND ${Qt6Positioning_FOUND})
+endif()
 
-if(Qt6Quick_FOUND AND Qt6QuickControls2_FOUND AND Qt6WebEngineQuick_FOUND
-   AND Qt6WebChannel_FOUND AND Qt6Positioning_FOUND)
+if(${_bike_app_modules_ok})
     qt_add_executable(bike_client
         src/main.cpp
         src/location_provider.cpp
@@ -63,6 +73,8 @@ if(Qt6Quick_FOUND AND Qt6QuickControls2_FOUND AND Qt6WebEngineQuick_FOUND
             LoginView.qml
             MainScreen.qml
             MapPane.qml
+            MapWeb.qml
+            MapAndroid.qml
             RidePane.qml
             WalletPane.qml
             RecordsPane.qml
@@ -73,18 +85,34 @@ if(Qt6Quick_FOUND AND Qt6QuickControls2_FOUND AND Qt6WebEngineQuick_FOUND
             Field.qml
     )
 
-    target_link_libraries(bike_client PRIVATE
-        bike_client_core
-        Qt6::Quick
-        Qt6::QuickControls2
-        Qt6::WebEngineQuick
-        Qt6::WebChannel
-        Qt6::Positioning
-    )
+    if(ANDROID)
+        # Android 降级链接: QtWebView 替代 WebEngineQuick/WebChannel。
+        # 地图页 MapPane.qml 经 Qt.platform.os 选择 MapAndroid.qml 静态后端。
+        target_link_libraries(bike_client PRIVATE
+            bike_client_core
+            Qt6::Quick
+            Qt6::QuickControls2
+            Qt6::WebView
+            Qt6::Positioning
+        )
+        # INTERNET 权限由 Qt 生成的 manifest 默认携带; 补定位权限。
+        set_target_properties(bike_client PROPERTIES
+            QT_ANDROID_PERMISSIONS
+                "android.permission.ACCESS_FINE_LOCATION;android.permission.ACCESS_COARSE_LOCATION")
+    else()
+        target_link_libraries(bike_client PRIVATE
+            bike_client_core
+            Qt6::Quick
+            Qt6::QuickControls2
+            Qt6::WebEngineQuick
+            Qt6::WebChannel
+            Qt6::Positioning
+        )
+    endif()
 else()
     message(WARNING
-        "Qt6 Quick/WebEngineQuick 模块未找到 — 跳过 bike_client 应用构建 "
-        "(bike_client_core 与单元测试仍然构建)。安装 Qt WebEngine 后重新配置即可。")
+        "Qt6 Quick/WebEngineQuick(桌面)或 WebView(Android) 模块未找到 — 跳过 bike_client "
+        "应用构建 (bike_client_core 与单元测试仍然构建)。")
 endif()
 
 # ---- 单元测试 (GTest + Qt) ----

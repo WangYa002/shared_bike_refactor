@@ -1,16 +1,19 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtWebChannel
-import QtWebEngine
 
-// 地图页: WebEngineView 承载 qrc:/map.html (Leaflet)。
+// 地图页 (任务 #55 Android 移植后为平台分发壳):
+//   - 桌面: Loader 加载 MapWeb.qml (WebEngineView 全功能路径, 零回归)
+//   - Android: Loader 加载 MapAndroid.qml (QtWebView 静态降级, 无 JS 交互)
+// 操作条/报修对话框/C++ 信号接线为两平台共用; JS 注入统一经 callJs()
+// 转发到当前地图后端的 runJs() (Android 版为 no-op)。
 // map.js 全局函数(已核实): setUserLocation(lat,lng) / renderBikes(bikes) /
 // appendTrajectory(lat,lng) / clearTrajectory() / drawFullTrajectory(points)。
-// appendTrajectory 内部会 panTo, 即骑行跟随平移。
 Item {
     id: pane
     objectName: "mapPane"
+
+    readonly property bool isAndroid: Qt.platform.os === "android"
 
     property double myLat: 39.9821   // LocationProvider 默认坐标(五道口)
     property double myLng: 116.3145
@@ -19,7 +22,9 @@ Item {
     property int idleCount: 0
     property int damagedCount: 0
 
-    function callJs(code) { if (mapReady) mapWeb.runJavaScript(code) }
+    function callJs(code) {
+        if (mapReady && mapLoader.item) mapLoader.item.runJs(code)
+    }
     function setStatus(s) { statusLabel.text = s }
     function refreshBikes() {
         if (!api.loggedIn) { setStatus("尚未登录"); return }
@@ -27,26 +32,26 @@ Item {
         api.refreshNearbyBikes(myLat, myLng)
     }
 
-    WebChannel { id: channel }
-
-    WebEngineView {
-        id: mapWeb
+    // ---- 地图后端 (平台条件化) ----
+    Loader {
+        id: mapLoader
         anchors.fill: parent
-        url: "qrc:/map.html"
-        webChannel: channel
+        source: pane.isAndroid ? "MapAndroid.qml" : "MapWeb.qml"
+    }
 
-        onLoadingChanged: function(loadRequest) {
-            if (loadRequest.status === WebEngineView.LoadFailedStatus) {
-                pane.setStatus("地图加载失败"); return
-            }
-            if (loadRequest.status !== WebEngineView.LoadSucceededStatus) return
+    // Loader 不转发子项信号, 经 Connections 接当前后端的 pageLoaded/pageFailed
+    Connections {
+        target: mapLoader.item
+        function onPageLoaded() {
             if (pane.mapReady) return
             pane.mapReady = true
             // 与旧 MapView::onLoadFinished 一致: 默认坐标打点 + 首次拉车 + 真实定位
+            // (Android 后端 runJs 为 no-op, JS 注入自动跳过)
             pane.callJs("setUserLocation(" + pane.myLat + ", " + pane.myLng + ");")
             pane.refreshBikes()
             location.requestOnce()
         }
+        function onPageFailed() { pane.setStatus("地图加载失败") }
     }
 
     // ---- 悬浮操作条 (旧 mapOverlay) ----
@@ -167,6 +172,7 @@ Item {
         function onNearbyBikesReady(ok, bikes, desc) {
             if (!ok) { pane.setStatus("加载失败: " + desc); return }
             // map.js renderBikes 接收对象数组 {bike_no, lat, lng, status}
+            // (Android 后端 runJs 为 no-op, 仅状态栏更新车辆数)
             pane.callJs("renderBikes(" + JSON.stringify(bikes) + ");")
             pane.setStatus("共 " + bikes.length + " 辆车")
         }
@@ -203,10 +209,5 @@ Item {
             pane.callJs("setUserLocation(" + lat + ", " + lng + ");")
         }
         function onLocationError(message) { pane.setStatus("定位提示: " + message) }
-    }
-
-    Component.onCompleted: {
-        // 先注册 WebChannel 对象再让页面加载完成, map.js 依赖 channel.objects.bridge
-        channel.registerObject("bridge", mapBridge)
     }
 }

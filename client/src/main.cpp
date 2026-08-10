@@ -7,10 +7,16 @@
 #include <QProcessEnvironment>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#if !defined(Q_OS_ANDROID)
+// Qt WebEngine 不支持 Android (任务 #55): Android 上 QML 侧走 QtWebView 降级路径,
+// 不初始化 WebEngineQuick。
 #include <QtWebEngineQuick/QtWebEngineQuick>
+#endif
 
 int main(int argc, char** argv) {
+#if !defined(Q_OS_ANDROID)
     QtWebEngineQuick::initialize();
+#endif
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName("shared_bike_client");
     QGuiApplication::setOrganizationName("wangya002");

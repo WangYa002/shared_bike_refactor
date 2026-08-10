@@ -2,11 +2,21 @@
   "name": "shared-bike-refactor",
   "version-string": "0.1.0",
   "dependencies": [
-    "protobuf",
-    "hiredis",
-    "libmysql",
-    "spdlog",
-    "tomlplusplus",
-    "gtest"
-  ]
+    "protobuf"
+  ],
+  "default-features": [
+    "server"
+  ],
+  "features": {
+    "server": {
+      "description": "服务端依赖 (hiredis/libmysql/spdlog/tomlplusplus/gtest); Android 客户端构建用 -DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON 关闭 (libmysql 不支持 android)",
+      "dependencies": [
+        "hiredis",
+        "libmysql",
+        "spdlog",
+        "tomlplusplus",
+        "gtest"
+      ]
+    }
+  }
 }

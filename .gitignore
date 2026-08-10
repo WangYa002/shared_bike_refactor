@@ -2,8 +2,12 @@
 /build/
 /build_*/
 /out/
+/dist/
 /bin/x64/
 /obj/
+
+# 本地 Android 工具链 (JDK/SDK/NDK, 任务 #55)
+/tools/
 *.o
 *.obj
 *.exe

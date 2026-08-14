@@ -106,6 +106,8 @@ int main(int argc, char** argv) {
     sp.prefix = cfg.ipc.shm_prefix;
     sp.instance = cfg.ipc.instance;
     sp.workers = req_rings;
+    if (const char* env = std::getenv("BIKE_IPC_MLOCK"))
+        sp.lock_pages = std::atoi(env) != 0;   // 调参/压测逃生阀, 默认锁定
     ShmRegion shm = ShmRegion::create_or_recover(sp);
 
     FifoChannel req_notify = FifoChannel::create_or_open(shm.req_notify_path());

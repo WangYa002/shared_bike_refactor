@@ -3,6 +3,8 @@
 // 模块三 共享内存区域管理 (Linux-only, 设计稿 §5.6/§5.7)。
 // shm_open + ftruncate + mmap, 文件落 /dev/shm (POSIX shm 语义);
 // magic/version 校验 + 双 pid 心跳的创建/附着/崩溃恢复。
+// 映射定稿后 mlock 页锁定: 消除首访缺页, 并防 tmpfs 页在 swap
+// 开启时被 kswapd 换出(major fault 毫秒级停顿)。
 // 纯逻辑环见 spsc_ring.hpp (跨平台)。
 
 #include <chrono>
@@ -25,6 +27,7 @@ public:
         int instance{0};
         int workers{8};                     // 请求环个数 N(双进程必须一致)
         std::chrono::milliseconds open_timeout{10000};
+        bool lock_pages{true};              // mlock 页锁定(防缺页/防换出)
     };
 
     ShmRegion(ShmRegion&&) noexcept;
@@ -76,6 +79,8 @@ private:
     static bool shm_create(const std::string& name, std::size_t total,
                            MappedFile& out);                 // false = EEXIST
     static void shm_open_existing(const std::string& name, MappedFile& out); // 失败抛异常
+    // mlock 整个映射: 失败仅 ERROR 降级不抛(驻留性保障非协议正确性)
+    static void lock_region_pages(const MappedFile& mf, const char* what);
 
     Params p_{};
     MappedFile req_;

@@ -81,6 +81,17 @@
 - tmpfs 容量说明: 单实例 ≈ 请求环 N×2MB + 响应环 ~98MB, 默认 256MB 足够
   16 worker 单实例; 加大 worker 数或双实例共卷时需同步调大 tmpfs size。
 
+### mlock 页锁定(防缺页/防换出)
+
+- shm 环映射定稿后进程内 `mlock` 整个区域: 调用本身同步 fault-in 全部页
+  (消除首访缺页), 并阻止 swap 开启时 tmpfs 页被 kswapd 换出
+  (major fault 毫秒级停顿, 环尾延迟杀手)。默认开启。
+- compose 已给 4 个 bike 服务设 `ulimits.memlock=-1`; 裸机部署需
+  `ulimit -l` ≥ 环总量(每进程 req+rsp ≈ 130MB,16 worker)或授予 CAP_IPC_LOCK。
+- 环境不满足时进程降级运行, 功能不受影响但高峰尾延迟可能劣化;
+  启动日志出现 `mlock ... failed` ERROR 即未锁成, 排查 ulimit。
+- 压测对比需要时可设 `BIKE_IPC_MLOCK=0` 显式关闭(双进程均生效)。
+
 ### healthcheck / alive 文件
 
 - bike-dispatch 每 1s touch `/tmp/bike-dispatch{instance}.alive`(compose 环境变量

@@ -30,6 +30,11 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-dispatch-1
+    # mlock 页锁定(防 shm 环缺页/被 swap 换出)需要无上限 memlock
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     # 镜像 ENTRYPOINT 是 bike-gateway, 必须清空后 command 才是完整命令行
     entrypoint: []
     command: ["/app/bike-dispatch", "/etc/bike/server.toml"]
@@ -62,6 +67,10 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-server-1
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     # io_uring 系列 syscall 被 Docker 默认 seccomp 拦截(EPERM), 需放开
     security_opt:
       - seccomp:unconfined
@@ -86,6 +95,10 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-dispatch-2
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     # 镜像 ENTRYPOINT 是 bike-gateway, 必须清空后 command 才是完整命令行
     entrypoint: []
     command: ["/app/bike-dispatch", "/etc/bike/server.toml"]
@@ -117,6 +130,10 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.server
     container_name: bike-server-2
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     # io_uring 系列 syscall 被 Docker 默认 seccomp 拦截(EPERM), 需放开
     security_opt:
       - seccomp:unconfined

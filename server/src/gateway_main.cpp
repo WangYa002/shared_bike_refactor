@@ -102,6 +102,8 @@ int main(int argc, char** argv) {
         sp.instance = cfg.ipc.instance;
         sp.workers = opt.workers;   // 请求环个数 = worker 数, 必须与 Dispatch 一致
         sp.open_timeout = std::chrono::milliseconds(cfg.ipc.open_timeout_ms);
+        if (const char* env = std::getenv("BIKE_IPC_MLOCK"))
+            sp.lock_pages = std::atoi(env) != 0;   // 调参/压测逃生阀, 默认锁定
         bike::ipc::ShmRegion shm = bike::ipc::ShmRegion::open(sp);
 
         auto producers = shm.attach_req_producers();

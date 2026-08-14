@@ -238,13 +238,40 @@ void ShmRegion::map_all(bool creator_side) {
     } else if (!validate_file(rsp_, 1, RspRing::kSlotCount, kRspSlotSize, rsp_total)) {
         fail(rsp_name + " header mismatch (size/magic/version)");
     }
+
+    // 页锁定: 此处映射已定稿(creator 侧可能的 remap/reinit 均已完成);
+    // mlock 按 VMA 计, 创建方锁了不代表附着方锁了, 两进程各自走
+    // map_all 各锁各的映射。
+    if (p_.lock_pages) {
+        lock_region_pages(req_, "req");
+        lock_region_pages(rsp_, "rsp");
+    }
 }
 
+// munmap 隐式释放该映射的页锁, 无需显式 munlock。
 void ShmRegion::unmap_all() {
     if (req_.base != nullptr) { ::munmap(req_.base, req_.bytes); req_.base = nullptr; }
     if (rsp_.base != nullptr) { ::munmap(rsp_.base, rsp_.bytes); rsp_.base = nullptr; }
     if (req_.fd >= 0) { ::close(req_.fd); req_.fd = -1; }
     if (rsp_.fd >= 0) { ::close(rsp_.fd); rsp_.fd = -1; }
+}
+
+// 页锁定(§5.6 迟滞控制): mlock 调用本身会同步 fault-in 全部页 ——
+// 一次性消除首访缺页(minor fault), 同时置 VM_LOCKED 阻止换出: 服务器
+// swap 开启时 tmpfs 页会被 kswapd 换出, 再访问需从 swap 读回
+// (major fault, 毫秒级停顿), 对环尾延迟是毁灭性的。
+// 失败(EPERM/ENOMEM: memlock ulimit 不足且无 CAP_IPC_LOCK)仅 ERROR
+// 降级不抛: 驻留性是延迟保障而非协议正确性, 不值得阻断启动。
+void ShmRegion::lock_region_pages(const MappedFile& mf, const char* what) {
+    if (::mlock(mf.base, mf.bytes) != 0) {
+        BIKE_LOG_ERROR("ipc shm {} {} mlock({} MiB) failed: {} — "
+                       "pages may fault/swap under pressure; fix: raise memlock "
+                       "ulimit (compose ulimits.memlock=-1) or grant CAP_IPC_LOCK",
+                       mf.shm_name, what, mf.bytes >> 20, std::strerror(errno));
+        return;
+    }
+    BIKE_LOG_INFO("ipc shm {} {} pages locked ({} MiB, no-swap resident)",
+                  mf.shm_name, what, mf.bytes >> 20);
 }
 
 ShmRegion ShmRegion::create_or_recover(const Params& p) {

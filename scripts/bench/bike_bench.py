@@ -200,11 +200,18 @@ async def bench_qps(host: str, port: int, concurrency: int, duration: int,
     errors = []
     total_reqs = 0
     stop = asyncio.Event()
+    connected = 0                      # 真实建连成功数(worker 内部统计)
+    connect_errors = []                # 建连失败原因(open_connection 异常不再被静默吞掉)
 
     async def worker(i: int):
-        nonlocal total_reqs
+        nonlocal total_reqs, connected
         mobile = make_mobile("139", worker_id, total_workers, i)
-        reader, writer = await asyncio.open_connection(host, port)
+        try:
+            reader, writer = await asyncio.open_connection(host, port)
+        except Exception as e:
+            connect_errors.append(f"connect {i}: {e!r}")
+            return
+        connected += 1
         try:
             while not stop.is_set():
                 t0 = time.perf_counter()
@@ -235,9 +242,29 @@ async def bench_qps(host: str, port: int, concurrency: int, duration: int,
             w = asyncio.create_task(worker(i))
             workers.append(w)
         except Exception as e:
-            errors.append(f"connect {i}: {e!r}")
+            connect_errors.append(f"spawn {i}: {e!r}")
+    # 等待全部 worker 完成建连阶段(open_connection 返回或抛错)再计时;
+    # sleep(0) 只让出一步, 连接未完成会误判为 0 建连(竞态)。
+    connect_deadline = time.perf_counter() + 30.0
+    while time.perf_counter() < connect_deadline:
+        if connected + len(connect_errors) >= concurrency:
+            break
+        await asyncio.sleep(0.05)
     connect_dur = time.perf_counter() - t_connect_start
-    print(f"  连接建立: {concurrency - sum('connect' in e for e in errors)}/{concurrency} 成功 ({connect_dur:.2f}s)\n", flush=True)
+    if connected == 0:
+        # 一个都没连上: 无需白等 duration, 立即收尾报错
+        stop.set()
+        await asyncio.gather(*workers, return_exceptions=True)
+        print(f"  连接建立: 0/{concurrency} 成功 ({connect_dur:.2f}s)", flush=True)
+        print(f"\n!! 目标 {host}:{port} 全部连接失败, 常见原因: 防火墙/云安全组未放行该端口、端口写错、服务未监听 !!", flush=True)
+        for e in connect_errors[:3]:
+            print(f"   示例错误: {e}", flush=True)
+        stats = _compute_stats("QPS-mobile_code", latencies, connect_errors, 0.0, concurrency)
+        if stats_out is not None:
+            stats_out.append(stats)
+        return
+    print(f"  连接建立: {connected}/{concurrency} 成功 ({connect_dur:.2f}s)"
+          + (f" [失败 {len(connect_errors)}]" if connect_errors else "") + "\n", flush=True)
 
     # run for duration
     await asyncio.sleep(duration)
@@ -339,7 +366,13 @@ def main():
         p.error(f"--worker-id must be in [0, {args.total_workers}); got {args.worker_id}")
 
     if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            try:
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            except AttributeError:
+                pass  # Python 3.16+: selector policy 已移除, proactor 默认即可
 
     try:
         asyncio.run(main_async(args))

@@ -126,6 +126,10 @@ int main(int argc, char** argv) {
     Router router;
     register_all_handlers(router);
     ReplyQueue replies;
+    // 在途回复配额(reader 消费时 ++, biz 线程 push/丢弃后 --): >0 期间
+    // RingReader 保持 5ms 短 poll 切片, 堵住"响应异步入队时无人监听"
+    // 的回流空窗(否则单个 200ms 切片兜底, 闲时请求多耗整整 200ms)。
+    std::atomic<std::uint32_t> inflight_replies{0};
     ThreadPool biz(static_cast<std::size_t>(cfg.ipc.dispatch_workers));
     g_wake_efd = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     if (g_wake_efd < 0) {
@@ -200,10 +204,15 @@ int main(int argc, char** argv) {
         bool peer_seen = false;
         while (!g_stopping.load(std::memory_order_relaxed)) {
           try {
-            // 有待冲刷响应时缩短 poll 切片, 压低响应回流延迟
-            const auto slice = replies.size() > 0
-                ? std::chrono::milliseconds(5)
-                : std::chrono::milliseconds(200);
+            // 在途回复或待冲刷响应非空时用 5ms 短切片: 响应由 biz 线程异步
+            // 产出, push 前后均无事件唤醒 reader, 只能短轮询兑底回流延迟。
+            // 采样次序(先 inflight 后 size): biz 线序为 push 后才归还配额,
+            // 若 size 未见新项则 inflight 必未归还, 不会漏判短切片。
+            const auto slice =
+                (inflight_replies.load(std::memory_order_relaxed) > 0 ||
+                 replies.size() > 0)
+                    ? std::chrono::milliseconds(5)
+                    : std::chrono::milliseconds(200);
 
             source.wait_pop([&](const ReqRing::Slot& slot) {
                 // cb 不得上抛: RingSource 在 cb 正常返回后才归还槽,
@@ -224,34 +233,41 @@ int main(int argc, char** argv) {
                 const std::uint64_t conn_id = pkt.conn_id;
                 const std::uint16_t eid = pkt.event_id;
                 const std::uint32_t seq = pkt.seq;
+                inflight_replies.fetch_add(1, std::memory_order_relaxed);
                 try {
-                    biz.post([&router, &ctx, &replies, conn_id, eid, seq, one_way,
-                              payload = std::move(payload)]() {
+                    biz.post([&router, &ctx, &replies, &inflight_replies, conn_id,
+                              eid, seq, one_way, payload = std::move(payload)]() {
                         std::vector<std::uint8_t> frame;
                         try {
                             frame = router.dispatch(eid, payload, ctx);
+                            if (!one_way && !frame.empty()) {
+                                // Dispatch 侧 stamp_seq(ring 模式 Gateway 不再回带)
+                                if (bike::stamp_seq(frame, seq)) {
+                                    replies.push(ReplyItem{conn_id, seq, one_way,
+                                                           std::move(frame)});
+                                } else {
+                                    BIKE_LOG_ERROR("stamp_seq failed eid={} conn={}",
+                                                   eid, conn_id);
+                                }
+                            }
                         } catch (const std::exception& e) {
                             BIKE_LOG_ERROR("handler eid={} conn={} threw: {}",
                                            eid, conn_id, e.what());
-                            return;
                         } catch (...) {
                             BIKE_LOG_ERROR("handler eid={} conn={} threw non-std",
                                            eid, conn_id);
-                            return;
                         }
-                        if (one_way || frame.empty()) return;
-                        // Dispatch 侧 stamp_seq(ring 模式 Gateway 不再回带)
-                        if (!bike::stamp_seq(frame, seq)) {
-                            BIKE_LOG_ERROR("stamp_seq failed eid={} conn={}", eid, conn_id);
-                            return;
-                        }
-                        replies.push(ReplyItem{conn_id, seq, one_way, std::move(frame)});
+                        // push(若有)已先于配额归还入队, reader 侧 size>0 能兑住
+                        // 空窗; 所有退出路径统一在此归还, 杜绝配额泄漏。
+                        inflight_replies.fetch_sub(1, std::memory_order_relaxed);
                     });
                 } catch (const std::exception& e) {
+                    inflight_replies.fetch_sub(1, std::memory_order_relaxed);
                     // std::function 构造/队列投递抛 bad_alloc 等: 降级丢弃该请求
                     BIKE_LOG_ERROR("biz.post failed eid={} conn={}, dropping: {}",
                                    eid, conn_id, e.what());
                 } catch (...) {
+                    inflight_replies.fetch_sub(1, std::memory_order_relaxed);
                     BIKE_LOG_ERROR("biz.post failed eid={} conn={}, dropping (non-std)",
                                    eid, conn_id);
                 }

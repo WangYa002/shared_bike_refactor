@@ -16,7 +16,7 @@ port = 6379
 pool_size = 4
 
 [log]
-level = "info"
+level = "warn"
 file = "/var/log/bike-server/server.log"
 
 # io_uring 网关 (模块二)。旧 [server].threads 已删除, 并发度由 workers 控制。

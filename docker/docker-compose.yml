@@ -45,7 +45,7 @@ services:
         condition: service_healthy
     environment:
       BIKE_INSTANCE: "0"
-      BIKE_GATEWAY_WORKERS: "16"
+      BIKE_GATEWAY_WORKERS: "4"
       BIKE_LOG_FILE: /var/log/bike-dispatch/dispatch.log
     volumes:
       - ./server.toml:/etc/bike/server.toml:ro
@@ -77,11 +77,13 @@ services:
     depends_on:
       bike-dispatch-1:
         condition: service_healthy
+    ports:
+      - "8881:8888"          # 压测直连入口 1(绕过 nginx, 映射到宿主机)
     expose:
       - "8888"
     environment:
       # io_uring 网关 worker 数(= 请求环个数, 与 dispatch 侧 BIKE_GATEWAY_WORKERS 一致)
-      BIKE_GATEWAY_WORKERS: "16"
+      BIKE_GATEWAY_WORKERS: "4"
       BIKE_INSTANCE: "0"
     volumes:
       - ./server.toml:/etc/bike/server.toml:ro
@@ -109,7 +111,7 @@ services:
         condition: service_healthy
     environment:
       BIKE_INSTANCE: "1"
-      BIKE_GATEWAY_WORKERS: "16"
+      BIKE_GATEWAY_WORKERS: "4"
       BIKE_LOG_FILE: /var/log/bike-dispatch/dispatch.log
     volumes:
       - ./server.toml:/etc/bike/server.toml:ro
@@ -140,10 +142,12 @@ services:
     depends_on:
       bike-dispatch-2:
         condition: service_healthy
+    ports:
+      - "8882:8888"          # 压测直连入口 2(绕过 nginx, 映射到宿主机)
     expose:
       - "8888"
     environment:
-      BIKE_GATEWAY_WORKERS: "16"
+      BIKE_GATEWAY_WORKERS: "4"
       BIKE_INSTANCE: "1"
     volumes:
       - ./server.toml:/etc/bike/server.toml:ro

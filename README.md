@@ -1,6 +1,6 @@
 # shared_bike_refactor
 
-C++20 共享单车系统：**Qt6 QML 桌面客户端** + **高性能 C++ 后端**（io_uring 网关 + Dispatch 业务进程双进程架构），MySQL + Redis 持久化，Docker 部署于云服务器，nginx stream 代理对外暴露公网端口 **8888**。
+C++20 共享单车系统：**Qt6 QML 客户端**（Windows 桌面 + Android APK）+ **高性能 C++ 后端**（io_uring 网关 + Dispatch 业务进程双进程架构），MySQL + Redis 持久化，Docker 部署于云服务器，nginx stream 代理对外暴露公网端口 **8888**，另映射 8881/8882 直连两实例网关供压测。
 
 本仓库是从 legacy C++03 实现（libevent + protobuf + log4cpp，保留于 `legacy/` 供对照）整体重构而来的现代实现。
 
@@ -10,14 +10,15 @@ C++20 共享单车系统：**Qt6 QML 桌面客户端** + **高性能 C++ 后端*
 
 - **io_uring Proactor 网关**：单主循环 + 固定 Worker 池，常驻线程数与连接数无关；空闲连接 60s 自动回收，优雅停机 drain 在途请求。
 - **双进程拆分**：`bike-gateway`（纯接入/切帧/协议解析）与 `bike-dispatch`（全部业务逻辑）经 `/dev/shm` 上的 **mmap SPSC 无锁环 + FIFO 通知** 协同；`[ipc].mode="inprocess"` 可一键回退单进程形态。
-- **零拷贝 IPC**：请求环 512×4KB/环（每 worker 一环）、响应环 256×392KB 单环；head/tail 分缓存行消除伪共享；心跳判活 + compose 自动重拉实现故障自愈。
+- **零拷贝 IPC**：请求环 512×4KB/环（每 worker 一环）、响应环 256×392KB 单环；head/tail 分缓存行消除伪共享；shm 区域 mlock 页锁定（`BIKE_IPC_MLOCK` 可关）防首访缺页与 swap 换出；心跳判活 + compose 自动重拉实现故障自愈。
+- **低延迟响应回流**：Dispatch 侧在途回复配额使 RingReader 在响应产出期间保持 5ms 短 poll 切片，消除"响应异步入队时无人监听"的 200ms 回流空窗。
 - **完整骑行闭环**：验证码/登录 → 充值/余额/账单 → 附近车辆（稀疏区域动态投放 `DY-` 车）→ 扫码解锁 → 每秒位置上报（轨迹点积累）→ 结束计费（沿轨迹逐段 haversine 里程 + 时间计费）→ 历史列表与轨迹回放。
-- **性能实测**：**16,733 QPS @ c500，P99 ≈ 42ms，0 错误**（云端 docker compose 双实例栈压测，工具 `scripts/bench/bike_bench.py`）。
+- **性能实测**：公网经 nginx **16,733 QPS @ c500，P99 ≈ 42ms，0 错误**；内网直连双实例阶梯升压峰值 **28,887 QPS @ c128，P99 ≈ 9ms，0 错误**（压测工具见 `scripts/bench/`）。
 
 **客户端**
 
-- Qt6 QML 桌面端（Windows 全功能）：`TcpWorker` 专属线程长连接 + 指数退避重连 + 坏帧自愈；`ApiBridge` GUI 线程门面，per-eid 单飞去重、断线在途请求失败广播。
-- WebEngine 内嵌 Leaflet 地图（高德瓦片）：附近车辆渲染、骑行轨迹实时跟随、历史订单轨迹回放。
+- Qt6 QML 双平台客户端（Windows 桌面全功能 + Android arm64 APK）：`TcpWorker` 专属线程长连接 + 指数退避重连 + 坏帧自愈；`ApiBridge` GUI 线程门面，per-eid 单飞去重、断线在途请求失败广播。
+- 地图平台自适应：桌面 WebEngine 内嵌 Leaflet 地图（高德瓦片），附近车辆渲染、骑行轨迹实时跟随、历史订单轨迹回放；Android 经 QtWebView 静态降级（`MapPane.qml` 按 `Qt.platform.os` 分发）。
 - 常驻订阅式定位（2s 周期 `QGeoPositionInfoSource`），骑行中每秒模拟轨迹推进并 fire-and-forget 上报。
 
 **协议**
@@ -28,7 +29,7 @@ C++20 共享单车系统：**Qt6 QML 桌面客户端** + **高性能 C++ 后端*
 
 ```mermaid
 graph TB
-    subgraph 客户端 Windows
+    subgraph 客户端 Windows / Android
         QML[QML 页面<br/>URI Bike 12 个文件]
         API[ApiBridge<br/>GUI 线程门面]
         TCP[TcpWorker<br/>专属 QThread 长连接]
@@ -80,7 +81,7 @@ graph TB
 │   ├── src/db/ src/cache/  # MySQL 连接池 + repo、Redis 会话存储 (Linux-only)
 │   ├── config/             # server.toml 配置
 │   └── tests/              # 9 个跨平台 ctest 套件 + Linux ipc_linux 集成测试
-├── client/            # Qt6 QML 桌面客户端 (bike_client)
+├── client/            # Qt6 QML 客户端 (bike_client; Windows 桌面 + Android APK)
 │   ├── src/net/            # TcpWorker / ApiBridge
 │   ├── src/                # LocationProvider / TrajectoryModel / MapBridge
 │   ├── resources/          # map.html/map.js/map.css (Leaflet, qrc 内嵌)
@@ -88,7 +89,10 @@ graph TB
 │   └── tests/              # 2 个 ctest 套件 (轨迹模拟 / TcpWorker)
 ├── proto/bike.proto   # protobuf 消息定义
 ├── docker/            # Dockerfile / docker-compose / nginx.conf / mysql-init / server.toml
-├── scripts/bench/     # bike_bench.py 压测 / bike_smoke.py 冒烟 / bike_replay_check.py 回放校验
+├── scripts/           # deploy.sh 一键构建镜像→传输→远端 compose 重启
+│   └── bench/         # bike_bench 压测 / auto_bench 阶梯升压 / bike_smoke 冒烟 / bike_replay_check 回放校验
+├── tools/             # Android 构建工具链 (android-sdk 含 NDK 27 / JDK 17)
+├── dist/              # Android APK 产物 (bike_client_android_arm64_v8a.apk)
 ├── docs/              # ops.md 运维手册 + 本文档族
 ├── docs/superpowers/  # 设计稿与实施计划 (specs / plans)
 ├── legacy/            # 原 C++03 实现, 仅参考
@@ -105,7 +109,8 @@ graph TB
 | 编译器 | C++20（Windows MSVC 2022+ / Linux GCC） |
 | CMake | ≥ 3.22 |
 | protobuf | vcpkg（Windows）/ apt（Linux） |
-| Qt | 6.10.1 msvc2022_64（含 WebEngine / Positioning） |
+| Qt | 6.10.1 msvc2022_64（含 WebEngine / Positioning）；Android 端另需 6.10.1 android_arm64_v8a |
+| Android 构建 | NDK 27 + Android SDK + JDK 17（仓库 `tools/` 已内置 SDK 与 JDK） |
 | 后端附加 | libhiredis-dev、libmysqlclient-dev、liburing-dev（Linux，Docker 镜像已内置） |
 
 CMake 构建选项（顶层 `CMakeLists.txt`）：
@@ -131,6 +136,25 @@ set BIKE_SERVER_HOST=127.0.0.1 & set BIKE_SERVER_PORT=8888
 
 > 本机缺 Qt WebEngine 模块时构建自动降级：只构建 `bike_client_core`（网络层+轨迹模拟静态库）与单元测试；安装 Qt WebEngine 后重新 configure 即可完整构建。
 
+### 构建 Android APK（可选）
+
+需 Qt 6.10 for Android 与 NDK；仓库 `tools/` 已内置 Android SDK（含 NDK 27.3）与 JDK 17。vcpkg 清单关闭 server feature（libmysql 不支持 Android，仅编 protobuf）：
+
+```bat
+cmake -B build_android -G Ninja -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake ^
+  -DVCPKG_TARGET_TRIPLET=arm64-android -DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON ^
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 ^
+  -DANDROID_SDK_ROOT=%CD%/tools/android-sdk -DANDROID_NDK=%CD%/tools/android-sdk/ndk/27.3.13750724 ^
+  -DQT_HOST_PATH=C:/Qt/6.10.1/msvc2022_64 ^
+  -DCMAKE_PREFIX_PATH=C:/Qt/6.10.1/android_arm64_v8a/lib/cmake ^
+  -DBIKE_BUILD_SERVER=OFF -DBIKE_BUILD_TESTS=OFF
+
+cmake --build build_android --target bike_client_make_apk
+```
+
+产物示例：`dist/bike_client_android_arm64_v8a.apk`。Android 端地图为 QtWebView 静态展示（无桌面端点车交互），定位走系统定位源，已声明 `ACCESS_FINE/COARSE_LOCATION` 权限。
+
 ### 云端部署（Docker）
 
 ```bash
@@ -140,7 +164,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 docker compose -f docker/docker-compose.yml ps   # 确认全部 healthy
 ```
 
-栈构成：mysql、redis、**两套实例**（每套 = `bike-dispatch-N` 建环方 + `bike-server-N` 纯网关，容器名 `bike-server-N` 为历史沿用）、nginx stream `least_conn` 代理，宿主机 `8888` 对外。每实例独享 256MB tmpfs 卷挂 `/dev/shm` 承载 IPC 环。详见 [docs/ops.md](docs/ops.md)。
+栈构成：mysql、redis、**两套实例**（每套 = `bike-dispatch-N` 建环方 + `bike-server-N` 纯网关，容器名 `bike-server-N` 为历史沿用）、nginx stream `least_conn` 代理，宿主机 `8888` 对外。每实例独享 256MB tmpfs 卷挂 `/dev/shm` 承载 IPC 环；网关容器以 `seccomp:unconfined` 放行 io_uring syscall，四个 bike 服务 `memlock` 无上限支撑 shm 环页锁定；另映射宿主机 `8881/8882` 直连两实例网关供压测绕过 nginx。详见 [docs/ops.md](docs/ops.md)。
 
 ### 运行与验证
 
@@ -150,6 +174,9 @@ python scripts/bench/bike_smoke.py --host 124.220.92.243 --port 8888
 
 # 压测
 python scripts/bench/bike_bench.py qps --host 124.220.92.243 --port 8888 -c 500 -d 20
+
+# 阶梯升压自动找峰值 QPS (默认压 8881/8882 直连双实例, 绕过 nginx)
+python scripts/bench/auto_bench.py --host 124.220.92.243 --workers 4 --max-c 2048
 
 # 骑行回放一致性校验
 python scripts/bench/bike_replay_check.py --host 124.220.92.243 --port 8888
@@ -170,21 +197,20 @@ ctest --test-dir <build>          # Windows 本地回归(纯逻辑层)
 pytest server/tests/integration/  # Linux/Docker 内端到端集成(ring 双进程或 inprocess 回退)
 ```
 
-**冒烟与压测脚本**（`scripts/bench/`）：`bike_smoke.py`（全事件冒烟）、`bike_replay_check.py`（骑行轨迹回放校验）、`bike_bench.py` + `run_bench.ps1`（多 worker 压测与聚合）。
+**冒烟与压测脚本**（`scripts/bench/`）：`bike_smoke.py`（全事件冒烟）、`bike_replay_check.py`（骑行轨迹回放校验）、`bike_bench.py`（单点压测，rtt/qps 两模式）+ `run_bench.ps1` / `aggregate_workers.py`（多 worker 并行与 JSON 聚合）、`auto_bench.py`（阶梯升压自动找峰值 QPS，多 worker 子进程压多端口，结果存 JSON）。
 
 Windows 本地无法编译 io_uring/shm/MySQL/Redis 实体层，这些路径的构建与运行验证一律在云服务器/Docker 内完成；本地可回归的是全部纯逻辑层（切帧、IPC 无锁协议、handler 业务、客户端网络层）。
 
 ## 性能数据
 
-云端 docker compose 双实例栈（4 vCPU 腾讯云）实测，工具 `scripts/bench/bike_bench.py`：
+云端 docker compose 双实例栈（4 vCPU 腾讯云）实测：
 
-| 指标 | 数值 |
-|---|---|
-| 吞吐 | **16,733 QPS @ c500** |
-| 尾延迟 | **P99 ≈ 42ms** |
-| 错误率 | **0 错误** |
+| 场景 | 工具 | 结果 |
+|---|---|---|
+| 公网经 nginx（c500，`bike_bench.py`） | `bike_bench.py` | **16,733 QPS**，P99 ≈ 42ms，0 错误 |
+| 内网直连双实例阶梯升压（8881/8882） | `auto_bench.py` | 峰值 **28,887 QPS @ c128**，P50 4.3ms / P99 9.0ms，0 错误 |
 
-历史基线与设计论证见设计稿：`docs/superpowers/specs/2026-08-08-gateway-io-uring-design.md`（io_uring 网关）与 `2026-08-08-ipc-mmap-ring-design.md`（IPC 双进程）。
+阶梯升压明细见 `autobench_095120.json`；历史基线与设计论证见设计稿：`docs/superpowers/specs/2026-08-08-gateway-io-uring-design.md`（io_uring 网关）与 `2026-08-08-ipc-mmap-ring-design.md`（IPC 双进程）。
 
 ## 质量流程
 
@@ -196,6 +222,6 @@ Windows 本地无法编译 io_uring/shm/MySQL/Redis 实体层，这些路径的�
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | 后端深度架构：io_uring 网关模型、IPC 环设计、双进程拓扑、协议帧与事件表、数据库表、部署与自愈 |
 | [docs/client.md](docs/client.md) | 客户端深度架构：线程模型、网络层、QML 页面结构、地图与定位、骑行/回放流程、构建打包 |
-| [docs/ops.md](docs/ops.md) | 运维手册：部署步骤、双进程运维、shm 清理、healthcheck、事件 ID 速查 |
+| [docs/ops.md](docs/ops.md) | 运维手册：部署步骤、双进程运维、shm 清理、mlock 页锁定、healthcheck、事件 ID 速查 |
 | [docs/smoke_checklist.md](docs/smoke_checklist.md) | 冒烟验证清单 |
 | `docs/superpowers/specs/` | 历次重构设计稿（refactor / expansion / bench+nginx / gateway io_uring / ipc mmap 环） |
